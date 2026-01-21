@@ -50,7 +50,7 @@ def _default_cache_dir() -> str:
 def _validate(cfg: AppConfig) -> AppConfig:
     # Port range
     if not (1 <= cfg.port <= 65535):
-        cfg.port = 8085
+        cfg.port = 8086
 
     # Cache type
     if cfg.cache_type not in {"filesystem", "SimpleCache", "FileSystemCache"}:
@@ -75,7 +75,7 @@ def _validate(cfg: AppConfig) -> AppConfig:
 
 def get_config() -> AppConfig:
     host = os.getenv('ALMANAC_HOST', '127.0.0.1')
-    port = _parse_int(os.getenv('ALMANAC_PORT', ''), 8085)
+    port = _parse_int(os.getenv('ALMANAC_PORT', ''), 8086)
     debug = _parse_bool(os.getenv('ALMANAC_DEBUG', ''), True)
 
     cache_type = os.getenv('ALMANAC_CACHE_TYPE', 'filesystem')

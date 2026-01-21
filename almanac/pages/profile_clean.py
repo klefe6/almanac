@@ -26,6 +26,9 @@ from ..features import (
     create_filter_description,
     validate_filter_config,
 )
+from ..features.filters import apply_percentage_change_zone_filters
+from ..features.stats import compute_filtered_day_stats
+from ..features.zone_filters import parse_zone_spec, apply_zone_filters
 from ..features.hod_lod import (
     detect_hod_lod,
     compute_survival_curves,
@@ -668,6 +671,368 @@ def create_sidebar_content():
                     'marginBottom': '20px'
                 }),
                 
+                # 2.5. PERCENTAGE CHANGE ZONE FILTERS (NEW SECTION)
+                html.Div([
+                    html.Label("🎯 PERCENTAGE CHANGE FILTERS", style={
+                        'fontWeight': 'bold', 
+                        'marginBottom': '12px', 
+                        'color': '#2c3e50',
+                        'fontSize': '14px',
+                        'textTransform': 'uppercase',
+                        'letterSpacing': '0.5px'
+                    }),
+                    html.Small("💡 Filter by percentage change in specific time zones (applies to hour of day and minute of hour)", 
+                              style={'color': '#666', 'fontSize': '10px', 'marginBottom': '15px', 'display': 'block'}),
+                    
+                    # % Change of prev NY session
+                    html.Div([
+                        html.Div([
+                            html.Label("% Change of prev NY session", style={
+                                'fontWeight': 'bold', 
+                                'marginBottom': '0px', 
+                                'color': '#2c3e50',
+                                'fontSize': '12px',
+                                'display': 'inline-block',
+                                'marginRight': '10px'
+                            }),
+                            dcc.Checklist(
+                                id='prev-ny-enabled',
+                                options=[{'label': ' ON', 'value': True}],
+                                value=[],
+                                style={'display': 'inline-block'},
+                                inputStyle={'marginRight': '4px', 'cursor': 'pointer'},
+                                labelStyle={'fontSize': '11px', 'cursor': 'pointer', 'fontWeight': 'bold'}
+                            )
+                        ], style={'marginBottom': '8px'}),
+                        html.Div([
+                            html.Div([
+                                html.Label("Target (%)", style={'fontSize': '11px', 'marginBottom': '4px'}),
+                                dcc.Input(
+                                    id='prev-ny-target',
+                                    type='number',
+                                    value=0.0,
+                                    min=-10,
+                                    max=10,
+                                    step=0.05,
+                                    style={'width': '100%', 'fontSize': '11px', 'padding': '4px'}
+                                )
+                            ], style={'width': '15%', 'display': 'inline-block', 'marginRight': '2%'}),
+                            html.Div([
+                                html.Label("Tolerance ±(%)", style={'fontSize': '11px', 'marginBottom': '4px'}),
+                                dcc.Input(
+                                    id='prev-ny-tolerance',
+                                    type='number',
+                                    value=None,
+                                    placeholder='0.2',
+                                    min=0,
+                                    step=0.05,
+                                    style={'width': '100%', 'fontSize': '11px', 'padding': '4px'}
+                                )
+                            ], style={'width': '15%', 'display': 'inline-block', 'marginRight': '2%'}),
+                            html.Div([
+                                html.Label("Start Time", style={'fontSize': '11px', 'marginBottom': '4px'}),
+                                html.Div([
+                                    dcc.Dropdown(
+                                        id='prev-ny-start-day',
+                                        options=[
+                                            {'label': 'T-1', 'value': -1},
+                                            {'label': 'T-0', 'value': 0},
+                                            {'label': 'T+1', 'value': 1}
+                                        ],
+                                        value=-1,
+                                        clearable=False,
+                                        style={'width': '30%', 'display': 'inline-block', 'marginRight': '2%', 'fontSize': '10px'}
+                                    ),
+                                    dcc.Dropdown(
+                                        id='prev-ny-start-hour',
+                                        options=[{'label': f'{h:02d}', 'value': h} for h in range(0, 24)],
+                                        value=9,
+                                        clearable=False,
+                                        style={'width': '32%', 'display': 'inline-block', 'marginRight': '2%', 'fontSize': '10px'}
+                                    ),
+                                    dcc.Dropdown(
+                                        id='prev-ny-start-minute',
+                                        options=[{'label': f'{m:02d}', 'value': m} for m in [0, 15, 30, 45]],
+                                        value=30,
+                                        clearable=False,
+                                        style={'width': '32%', 'display': 'inline-block', 'fontSize': '10px'}
+                                    )
+                                ])
+                            ], style={'width': '68%', 'display': 'inline-block'}),
+                        ], style={'marginBottom': '8px'}),
+                        html.Div([
+                            html.Label("End Time", style={'fontSize': '11px', 'marginBottom': '4px'}),
+                            html.Div([
+                                dcc.Dropdown(
+                                    id='prev-ny-end-day',
+                                    options=[
+                                        {'label': 'T-1', 'value': -1},
+                                        {'label': 'T-0', 'value': 0},
+                                        {'label': 'T+1', 'value': 1}
+                                    ],
+                                    value=-1,
+                                    clearable=False,
+                                    style={'width': '30%', 'display': 'inline-block', 'marginRight': '2%', 'fontSize': '10px'}
+                                ),
+                                dcc.Dropdown(
+                                    id='prev-ny-end-hour',
+                                    options=[{'label': f'{h:02d}', 'value': h} for h in range(0, 24)],
+                                    value=16,
+                                    clearable=False,
+                                    style={'width': '32%', 'display': 'inline-block', 'marginRight': '2%', 'fontSize': '10px'}
+                                ),
+                                dcc.Dropdown(
+                                    id='prev-ny-end-minute',
+                                    options=[{'label': f'{m:02d}', 'value': m} for m in [0, 15, 30, 45]],
+                                    value=0,
+                                    clearable=False,
+                                    style={'width': '32%', 'display': 'inline-block', 'fontSize': '10px'}
+                                )
+                            ])
+                        ], style={'marginBottom': '12px'})
+                    ], style={
+                        'backgroundColor': '#fff3cd',
+                        'padding': '10px',
+                        'borderRadius': '6px',
+                        'border': '1px solid #ffc107',
+                        'marginBottom': '12px'
+                    }),
+                    
+                    # % Change zone 1 (MOVED HERE)
+                    html.Div([
+                        html.Div([
+                            html.Label("% Change zone 1", style={
+                                'fontWeight': 'bold', 
+                                'marginBottom': '0px', 
+                                'color': '#2c3e50',
+                                'fontSize': '12px',
+                                'display': 'inline-block',
+                                'marginRight': '10px'
+                            }),
+                            dcc.Checklist(
+                                id='zone1-enabled',
+                                options=[{'label': ' ON', 'value': True}],
+                                value=[],
+                                style={'display': 'inline-block'},
+                                inputStyle={'marginRight': '4px', 'cursor': 'pointer'},
+                                labelStyle={'fontSize': '11px', 'cursor': 'pointer', 'fontWeight': 'bold'}
+                            )
+                        ], style={'marginBottom': '8px'}),
+                        html.Div([
+                            html.Div([
+                                html.Label("Target (%)", style={'fontSize': '11px', 'marginBottom': '4px'}),
+                                dcc.Input(
+                                    id='zone1-target',
+                                    type='number',
+                                    value=0.0,
+                                    min=-10,
+                                    max=10,
+                                    step=0.05,
+                                    style={'width': '100%', 'fontSize': '11px', 'padding': '4px'}
+                                )
+                            ], style={'width': '15%', 'display': 'inline-block', 'marginRight': '2%'}),
+                            html.Div([
+                                html.Label("Tolerance ±(%)", style={'fontSize': '11px', 'marginBottom': '4px'}),
+                                dcc.Input(
+                                    id='zone1-tolerance',
+                                    type='number',
+                                    value=None,
+                                    placeholder='0.6',
+                                    min=0,
+                                    step=0.05,
+                                    style={'width': '100%', 'fontSize': '11px', 'padding': '4px'}
+                                )
+                            ], style={'width': '15%', 'display': 'inline-block', 'marginRight': '2%'}),
+                            html.Div([
+                                html.Label("Start Time", style={'fontSize': '11px', 'marginBottom': '4px'}),
+                                html.Div([
+                                    dcc.Dropdown(
+                                        id='zone1-start-day',
+                                        options=[
+                                            {'label': 'T-1', 'value': -1},
+                                            {'label': 'T-0', 'value': 0},
+                                            {'label': 'T+1', 'value': 1}
+                                        ],
+                                        value=-1,
+                                        clearable=False,
+                                        style={'width': '30%', 'display': 'inline-block', 'marginRight': '2%', 'fontSize': '10px'}
+                                    ),
+                                    dcc.Dropdown(
+                                        id='zone1-start-hour',
+                                        options=[{'label': f'{h:02d}', 'value': h} for h in range(0, 24)],
+                                        value=16,
+                                        clearable=False,
+                                        style={'width': '32%', 'display': 'inline-block', 'marginRight': '2%', 'fontSize': '10px'}
+                                    ),
+                                    dcc.Dropdown(
+                                        id='zone1-start-minute',
+                                        options=[{'label': f'{m:02d}', 'value': m} for m in [0, 15, 30, 45]],
+                                        value=0,
+                                        clearable=False,
+                                        style={'width': '32%', 'display': 'inline-block', 'fontSize': '10px'}
+                                    )
+                                ])
+                            ], style={'width': '68%', 'display': 'inline-block'}),
+                        ], style={'marginBottom': '8px'}),
+                        html.Div([
+                            html.Label("End Time", style={'fontSize': '11px', 'marginBottom': '4px'}),
+                            html.Div([
+                                dcc.Dropdown(
+                                    id='zone1-end-day',
+                                    options=[
+                                        {'label': 'T-1', 'value': -1},
+                                        {'label': 'T-0', 'value': 0},
+                                        {'label': 'T+1', 'value': 1}
+                                    ],
+                                    value=0,
+                                    clearable=False,
+                                    style={'width': '30%', 'display': 'inline-block', 'marginRight': '2%', 'fontSize': '10px'}
+                                ),
+                                dcc.Dropdown(
+                                    id='zone1-end-hour',
+                                    options=[{'label': f'{h:02d}', 'value': h} for h in range(0, 24)],
+                                    value=8,
+                                    clearable=False,
+                                    style={'width': '32%', 'display': 'inline-block', 'marginRight': '2%', 'fontSize': '10px'}
+                                ),
+                                dcc.Dropdown(
+                                    id='zone1-end-minute',
+                                    options=[{'label': f'{m:02d}', 'value': m} for m in [0, 15, 30, 45]],
+                                    value=0,
+                                    clearable=False,
+                                    style={'width': '32%', 'display': 'inline-block', 'fontSize': '10px'}
+                                )
+                            ])
+                        ], style={'marginBottom': '12px'})
+                    ], style={
+                        'backgroundColor': '#d1ecf1',
+                        'padding': '10px',
+                        'borderRadius': '6px',
+                        'border': '1px solid #17a2b8',
+                        'marginBottom': '12px'
+                    }),
+                    
+                    # % Change zone 2 (MOVED HERE)
+                    html.Div([
+                        html.Div([
+                            html.Label("% Change zone 2", style={
+                                'fontWeight': 'bold', 
+                                'marginBottom': '0px', 
+                                'color': '#2c3e50',
+                                'fontSize': '12px',
+                                'display': 'inline-block',
+                                'marginRight': '10px'
+                            }),
+                            dcc.Checklist(
+                                id='zone2-enabled',
+                                options=[{'label': ' ON', 'value': True}],
+                                value=[],
+                                style={'display': 'inline-block'},
+                                inputStyle={'marginRight': '4px', 'cursor': 'pointer'},
+                                labelStyle={'fontSize': '11px', 'cursor': 'pointer', 'fontWeight': 'bold'}
+                            )
+                        ], style={'marginBottom': '8px'}),
+                        html.Div([
+                            html.Div([
+                                html.Label("Target (%)", style={'fontSize': '11px', 'marginBottom': '4px'}),
+                                dcc.Input(
+                                    id='zone2-target',
+                                    type='number',
+                                    value=0.0,
+                                    min=-10,
+                                    max=10,
+                                    step=0.05,
+                                    style={'width': '100%', 'fontSize': '11px', 'padding': '4px'}
+                                )
+                            ], style={'width': '15%', 'display': 'inline-block', 'marginRight': '2%'}),
+                            html.Div([
+                                html.Label("Tolerance ±(%)", style={'fontSize': '11px', 'marginBottom': '4px'}),
+                                dcc.Input(
+                                    id='zone2-tolerance',
+                                    type='number',
+                                    value=None,
+                                    placeholder='0.3',
+                                    min=0,
+                                    step=0.05,
+                                    style={'width': '100%', 'fontSize': '11px', 'padding': '4px'}
+                                )
+                            ], style={'width': '15%', 'display': 'inline-block', 'marginRight': '2%'}),
+                            html.Div([
+                                html.Label("Start Time", style={'fontSize': '11px', 'marginBottom': '4px'}),
+                                html.Div([
+                                    dcc.Dropdown(
+                                        id='zone2-start-day',
+                                        options=[
+                                            {'label': 'T-1', 'value': -1},
+                                            {'label': 'T-0', 'value': 0},
+                                            {'label': 'T+1', 'value': 1}
+                                        ],
+                                        value=0,
+                                        clearable=False,
+                                        style={'width': '30%', 'display': 'inline-block', 'marginRight': '2%', 'fontSize': '10px'}
+                                    ),
+                                    dcc.Dropdown(
+                                        id='zone2-start-hour',
+                                        options=[{'label': f'{h:02d}', 'value': h} for h in range(0, 24)],
+                                        value=8,
+                                        clearable=False,
+                                        style={'width': '32%', 'display': 'inline-block', 'marginRight': '2%', 'fontSize': '10px'}
+                                    ),
+                                    dcc.Dropdown(
+                                        id='zone2-start-minute',
+                                        options=[{'label': f'{m:02d}', 'value': m} for m in [0, 15, 30, 45]],
+                                        value=0,
+                                        clearable=False,
+                                        style={'width': '32%', 'display': 'inline-block', 'fontSize': '10px'}
+                                    )
+                                ])
+                            ], style={'width': '68%', 'display': 'inline-block'}),
+                        ], style={'marginBottom': '8px'}),
+                        html.Div([
+                            html.Label("End Time", style={'fontSize': '11px', 'marginBottom': '4px'}),
+                            html.Div([
+                                dcc.Dropdown(
+                                    id='zone2-end-day',
+                                    options=[
+                                        {'label': 'T-1', 'value': -1},
+                                        {'label': 'T-0', 'value': 0},
+                                        {'label': 'T+1', 'value': 1}
+                                    ],
+                                    value=0,
+                                    clearable=False,
+                                    style={'width': '30%', 'display': 'inline-block', 'marginRight': '2%', 'fontSize': '10px'}
+                                ),
+                                dcc.Dropdown(
+                                    id='zone2-end-hour',
+                                    options=[{'label': f'{h:02d}', 'value': h} for h in range(0, 24)],
+                                    value=9,
+                                    clearable=False,
+                                    style={'width': '32%', 'display': 'inline-block', 'marginRight': '2%', 'fontSize': '10px'}
+                                ),
+                                dcc.Dropdown(
+                                    id='zone2-end-minute',
+                                    options=[{'label': f'{m:02d}', 'value': m} for m in [0, 15, 30, 45]],
+                                    value=30,
+                                    clearable=False,
+                                    style={'width': '32%', 'display': 'inline-block', 'fontSize': '10px'}
+                                )
+                            ])
+                        ], style={'marginBottom': '12px'})
+                    ], style={
+                        'backgroundColor': '#d4edda',
+                        'padding': '10px',
+                        'borderRadius': '6px',
+                        'border': '1px solid #28a745',
+                        'marginBottom': '12px'
+                    })
+                ], style={
+                    'backgroundColor': '#fff9f0',
+                    'padding': '15px',
+                    'borderRadius': '8px',
+                    'border': '2px solid #ffc107',
+                    'marginBottom': '20px'
+                }),
+                
                 # 3. DAILY ANALYSIS SECTION
                 html.Div([
                     html.Label("📈 DAILY ANALYSIS", style={
@@ -746,6 +1111,392 @@ def create_sidebar_content():
                     'padding': '15px',
                     'borderRadius': '8px',
                     'border': '2px solid #b3d9ff',
+                    'marginBottom': '20px'
+                }),
+                
+                # 4. HOURLY ANALYSIS SECTION
+                html.Div([
+                    html.Label("⏰ HOURLY ANALYSIS", style={
+                        'fontWeight': 'bold', 
+                        'marginBottom': '8px', 
+                        'color': '#2c3e50',
+                        'fontSize': '14px',
+                        'textTransform': 'uppercase',
+                        'letterSpacing': '0.5px'
+                    }),
+                    html.Small("💡 Analyze minute-level statistics for specific hour", 
+                              style={'color': '#666', 'fontSize': '10px', 'marginBottom': '15px', 'display': 'block'}),
+                    
+                    # Minute Hour Selection (inside the hourly analysis box)
+                    html.Label("⏰ Minute Hour", style={
+                        'fontWeight': 'bold', 
+                        'marginBottom': '8px', 
+                        'color': '#2c3e50',
+                        'fontSize': '12px'
+                    }),
+                    html.Small("💡 Select the hour to analyze for minute-level statistics", 
+                              style={'color': '#666', 'fontSize': '10px', 'marginBottom': '8px', 'display': 'block'}),
+                    
+                    dcc.Dropdown(
+                        id='minute-hour',
+                        options=[{'label': f'{h}:00', 'value': h} for h in range(0, 24) if h not in (5, 6)],
+                        value=None,  # Will be set by callback
+                        clearable=False,
+                        style={'marginBottom': '15px', 'fontSize': '12px'}
+                    ),
+                    
+                    html.Button(
+                        '⏰ Calculate an Hour',
+                        id='calc-hour-btn',
+                        n_clicks=0,
+                        title='Calculate minute statistics for selected hour',
+                        style={
+                            'width': '100%',
+                            'padding': '12px',
+                            'fontWeight': 'bold',
+                            'backgroundColor': '#28a745',
+                            'color': 'white',
+                            'border': 'none',
+                            'borderRadius': '6px',
+                            'cursor': 'pointer',
+                            'fontSize': '13px',
+                            'boxShadow': '0 2px 4px rgba(40, 167, 69, 0.3)'
+                        }
+                    ),
+                ], style={
+                    'backgroundColor': '#f0fff4',
+                    'padding': '15px',
+                    'borderRadius': '8px',
+                    'border': '2px solid #90ee90',
+                    'marginBottom': '20px'
+                }),
+                
+                # 4. HOURLY ANALYSIS SECTION
+                html.Div([
+                    html.Label("⏰ HOURLY ANALYSIS", style={
+                                dcc.Input(
+                                    id='prev-ny-target',
+                                    type='number',
+                                    value=0.0,
+                                    min=-10,
+                                    max=10,
+                                    step=0.05,
+                                    style={'width': '100%', 'fontSize': '11px', 'padding': '4px'}
+                                )
+                            ], style={'width': '15%', 'display': 'inline-block', 'marginRight': '2%'}),
+                            html.Div([
+                                html.Label("Tolerance ±(%)", style={'fontSize': '11px', 'marginBottom': '4px'}),
+                                dcc.Input(
+                                    id='prev-ny-tolerance',
+                                    type='number',
+                                    value=None,
+                                    placeholder='0.2',
+                                    min=0,
+                                    step=0.05,
+                                    style={'width': '100%', 'fontSize': '11px', 'padding': '4px'}
+                                )
+                            ], style={'width': '15%', 'display': 'inline-block', 'marginRight': '2%'}),
+                            html.Div([
+                                html.Label("Start Time", style={'fontSize': '11px', 'marginBottom': '4px'}),
+                                html.Div([
+                                    dcc.Dropdown(
+                                        id='prev-ny-start-day',
+                                        options=[
+                                            {'label': 'T-1', 'value': -1},
+                                            {'label': 'T-0', 'value': 0},
+                                            {'label': 'T+1', 'value': 1}
+                                        ],
+                                        value=-1,
+                                        clearable=False,
+                                        style={'width': '30%', 'display': 'inline-block', 'marginRight': '2%', 'fontSize': '10px'}
+                                    ),
+                                    dcc.Dropdown(
+                                        id='prev-ny-start-hour',
+                                        options=[{'label': f'{h:02d}', 'value': h} for h in range(0, 24)],
+                                        value=9,
+                                        clearable=False,
+                                        style={'width': '32%', 'display': 'inline-block', 'marginRight': '2%', 'fontSize': '10px'}
+                                    ),
+                                    dcc.Dropdown(
+                                        id='prev-ny-start-minute',
+                                        options=[{'label': f'{m:02d}', 'value': m} for m in [0, 15, 30, 45]],
+                                        value=30,
+                                        clearable=False,
+                                        style={'width': '32%', 'display': 'inline-block', 'fontSize': '10px'}
+                                    )
+                                ])
+                            ], style={'width': '68%', 'display': 'inline-block'}),
+                        ], style={'marginBottom': '8px'}),
+                        html.Div([
+                            html.Label("End Time", style={'fontSize': '11px', 'marginBottom': '4px'}),
+                            html.Div([
+                                dcc.Dropdown(
+                                    id='prev-ny-end-day',
+                                    options=[
+                                        {'label': 'T-1', 'value': -1},
+                                        {'label': 'T-0', 'value': 0},
+                                        {'label': 'T+1', 'value': 1}
+                                    ],
+                                    value=-1,
+                                    clearable=False,
+                                    style={'width': '30%', 'display': 'inline-block', 'marginRight': '2%', 'fontSize': '10px'}
+                                ),
+                                dcc.Dropdown(
+                                    id='prev-ny-end-hour',
+                                    options=[{'label': f'{h:02d}', 'value': h} for h in range(0, 24)],
+                                    value=16,
+                                    clearable=False,
+                                    style={'width': '32%', 'display': 'inline-block', 'marginRight': '2%', 'fontSize': '10px'}
+                                ),
+                                dcc.Dropdown(
+                                    id='prev-ny-end-minute',
+                                    options=[{'label': f'{m:02d}', 'value': m} for m in [0, 15, 30, 45]],
+                                    value=0,
+                                    clearable=False,
+                                    style={'width': '32%', 'display': 'inline-block', 'fontSize': '10px'}
+                                )
+                            ])
+                        ], style={'marginBottom': '12px'})
+                    ], style={
+                        'backgroundColor': '#fff3cd',
+                        'padding': '10px',
+                        'borderRadius': '6px',
+                        'border': '1px solid #ffc107',
+                        'marginBottom': '12px'
+                    }),
+                    
+                    # % Change zone 1
+                    html.Div([
+                        html.Div([
+                            html.Label("% Change zone 1", style={
+                                'fontWeight': 'bold', 
+                                'marginBottom': '0px', 
+                                'color': '#2c3e50',
+                                'fontSize': '12px',
+                                'display': 'inline-block',
+                                'marginRight': '10px'
+                            }),
+                            dcc.Checklist(
+                                id='zone1-enabled',
+                                options=[{'label': ' ON', 'value': True}],
+                                value=[],
+                                style={'display': 'inline-block'},
+                                inputStyle={'marginRight': '4px', 'cursor': 'pointer'},
+                                labelStyle={'fontSize': '11px', 'cursor': 'pointer', 'fontWeight': 'bold'}
+                            )
+                        ], style={'marginBottom': '8px'}),
+                        html.Div([
+                            html.Div([
+                                html.Label("Target (%)", style={'fontSize': '11px', 'marginBottom': '4px'}),
+                                dcc.Input(
+                                    id='zone1-target',
+                                    type='number',
+                                    value=0.0,
+                                    min=-10,
+                                    max=10,
+                                    step=0.05,
+                                    style={'width': '100%', 'fontSize': '11px', 'padding': '4px'}
+                                )
+                            ], style={'width': '15%', 'display': 'inline-block', 'marginRight': '2%'}),
+                            html.Div([
+                                html.Label("Tolerance ±(%)", style={'fontSize': '11px', 'marginBottom': '4px'}),
+                                dcc.Input(
+                                    id='zone1-tolerance',
+                                    type='number',
+                                    value=None,
+                                    placeholder='0.6',
+                                    min=0,
+                                    step=0.05,
+                                    style={'width': '100%', 'fontSize': '11px', 'padding': '4px'}
+                                )
+                            ], style={'width': '15%', 'display': 'inline-block', 'marginRight': '2%'}),
+                            html.Div([
+                                html.Label("Start Time", style={'fontSize': '11px', 'marginBottom': '4px'}),
+                                html.Div([
+                                    dcc.Dropdown(
+                                        id='zone1-start-day',
+                                        options=[
+                                            {'label': 'T-1', 'value': -1},
+                                            {'label': 'T-0', 'value': 0},
+                                            {'label': 'T+1', 'value': 1}
+                                        ],
+                                        value=-1,
+                                        clearable=False,
+                                        style={'width': '30%', 'display': 'inline-block', 'marginRight': '2%', 'fontSize': '10px'}
+                                    ),
+                                    dcc.Dropdown(
+                                        id='zone1-start-hour',
+                                        options=[{'label': f'{h:02d}', 'value': h} for h in range(0, 24)],
+                                        value=16,
+                                        clearable=False,
+                                        style={'width': '32%', 'display': 'inline-block', 'marginRight': '2%', 'fontSize': '10px'}
+                                    ),
+                                    dcc.Dropdown(
+                                        id='zone1-start-minute',
+                                        options=[{'label': f'{m:02d}', 'value': m} for m in [0, 15, 30, 45]],
+                                        value=0,
+                                        clearable=False,
+                                        style={'width': '32%', 'display': 'inline-block', 'fontSize': '10px'}
+                                    )
+                                ])
+                            ], style={'width': '68%', 'display': 'inline-block'}),
+                        ], style={'marginBottom': '8px'}),
+                        html.Div([
+                            html.Label("End Time", style={'fontSize': '11px', 'marginBottom': '4px'}),
+                            html.Div([
+                                dcc.Dropdown(
+                                    id='zone1-end-day',
+                                    options=[
+                                        {'label': 'T-1', 'value': -1},
+                                        {'label': 'T-0', 'value': 0},
+                                        {'label': 'T+1', 'value': 1}
+                                    ],
+                                    value=0,
+                                    clearable=False,
+                                    style={'width': '30%', 'display': 'inline-block', 'marginRight': '2%', 'fontSize': '10px'}
+                                ),
+                                dcc.Dropdown(
+                                    id='zone1-end-hour',
+                                    options=[{'label': f'{h:02d}', 'value': h} for h in range(0, 24)],
+                                    value=8,
+                                    clearable=False,
+                                    style={'width': '32%', 'display': 'inline-block', 'marginRight': '2%', 'fontSize': '10px'}
+                                ),
+                                dcc.Dropdown(
+                                    id='zone1-end-minute',
+                                    options=[{'label': f'{m:02d}', 'value': m} for m in [0, 15, 30, 45]],
+                                    value=0,
+                                    clearable=False,
+                                    style={'width': '32%', 'display': 'inline-block', 'fontSize': '10px'}
+                                )
+                            ])
+                        ], style={'marginBottom': '12px'})
+                    ], style={
+                        'backgroundColor': '#d1ecf1',
+                        'padding': '10px',
+                        'borderRadius': '6px',
+                        'border': '1px solid #17a2b8',
+                        'marginBottom': '12px'
+                    }),
+                    
+                    # % Change zone 2
+                    html.Div([
+                        html.Div([
+                            html.Label("% Change zone 2", style={
+                                'fontWeight': 'bold', 
+                                'marginBottom': '0px', 
+                                'color': '#2c3e50',
+                                'fontSize': '12px',
+                                'display': 'inline-block',
+                                'marginRight': '10px'
+                            }),
+                            dcc.Checklist(
+                                id='zone2-enabled',
+                                options=[{'label': ' ON', 'value': True}],
+                                value=[],
+                                style={'display': 'inline-block'},
+                                inputStyle={'marginRight': '4px', 'cursor': 'pointer'},
+                                labelStyle={'fontSize': '11px', 'cursor': 'pointer', 'fontWeight': 'bold'}
+                            )
+                        ], style={'marginBottom': '8px'}),
+                        html.Div([
+                            html.Div([
+                                html.Label("Target (%)", style={'fontSize': '11px', 'marginBottom': '4px'}),
+                                dcc.Input(
+                                    id='zone2-target',
+                                    type='number',
+                                    value=0.0,
+                                    min=-10,
+                                    max=10,
+                                    step=0.05,
+                                    style={'width': '100%', 'fontSize': '11px', 'padding': '4px'}
+                                )
+                            ], style={'width': '15%', 'display': 'inline-block', 'marginRight': '2%'}),
+                            html.Div([
+                                html.Label("Tolerance ±(%)", style={'fontSize': '11px', 'marginBottom': '4px'}),
+                                dcc.Input(
+                                    id='zone2-tolerance',
+                                    type='number',
+                                    value=None,
+                                    placeholder='0.3',
+                                    min=0,
+                                    step=0.05,
+                                    style={'width': '100%', 'fontSize': '11px', 'padding': '4px'}
+                                )
+                            ], style={'width': '15%', 'display': 'inline-block', 'marginRight': '2%'}),
+                            html.Div([
+                                html.Label("Start Time", style={'fontSize': '11px', 'marginBottom': '4px'}),
+                                html.Div([
+                                    dcc.Dropdown(
+                                        id='zone2-start-day',
+                                        options=[
+                                            {'label': 'T-1', 'value': -1},
+                                            {'label': 'T-0', 'value': 0},
+                                            {'label': 'T+1', 'value': 1}
+                                        ],
+                                        value=0,
+                                        clearable=False,
+                                        style={'width': '30%', 'display': 'inline-block', 'marginRight': '2%', 'fontSize': '10px'}
+                                    ),
+                                    dcc.Dropdown(
+                                        id='zone2-start-hour',
+                                        options=[{'label': f'{h:02d}', 'value': h} for h in range(0, 24)],
+                                        value=8,
+                                        clearable=False,
+                                        style={'width': '32%', 'display': 'inline-block', 'marginRight': '2%', 'fontSize': '10px'}
+                                    ),
+                                    dcc.Dropdown(
+                                        id='zone2-start-minute',
+                                        options=[{'label': f'{m:02d}', 'value': m} for m in [0, 15, 30, 45]],
+                                        value=0,
+                                        clearable=False,
+                                        style={'width': '32%', 'display': 'inline-block', 'fontSize': '10px'}
+                                    )
+                                ])
+                            ], style={'width': '68%', 'display': 'inline-block'}),
+                        ], style={'marginBottom': '8px'}),
+                        html.Div([
+                            html.Label("End Time", style={'fontSize': '11px', 'marginBottom': '4px'}),
+                            html.Div([
+                                dcc.Dropdown(
+                                    id='zone2-end-day',
+                                    options=[
+                                        {'label': 'T-1', 'value': -1},
+                                        {'label': 'T-0', 'value': 0},
+                                        {'label': 'T+1', 'value': 1}
+                                    ],
+                                    value=0,
+                                    clearable=False,
+                                    style={'width': '30%', 'display': 'inline-block', 'marginRight': '2%', 'fontSize': '10px'}
+                                ),
+                                dcc.Dropdown(
+                                    id='zone2-end-hour',
+                                    options=[{'label': f'{h:02d}', 'value': h} for h in range(0, 24)],
+                                    value=9,
+                                    clearable=False,
+                                    style={'width': '32%', 'display': 'inline-block', 'marginRight': '2%', 'fontSize': '10px'}
+                                ),
+                                dcc.Dropdown(
+                                    id='zone2-end-minute',
+                                    options=[{'label': f'{m:02d}', 'value': m} for m in [0, 15, 30, 45]],
+                                    value=30,
+                                    clearable=False,
+                                    style={'width': '32%', 'display': 'inline-block', 'fontSize': '10px'}
+                                )
+                            ])
+                        ], style={'marginBottom': '12px'})
+                    ], style={
+                        'backgroundColor': '#d4edda',
+                        'padding': '10px',
+                        'borderRadius': '6px',
+                        'border': '1px solid #28a745',
+                        'marginBottom': '12px'
+                    })
+                ], style={
+                    'backgroundColor': '#f8f9fa',
+                    'padding': '15px',
+                    'borderRadius': '8px',
+                    'border': '2px solid #dee2e6',
                     'marginBottom': '20px'
                 }),
                 
@@ -1669,7 +2420,7 @@ def _scale_variance(v):
     return v * (10 ** exp), exp
 
 
-def _generate_summary(daily, filtered_minute, hc, hv, hr, hvr, mc, mv, mr, mvr, sh, sm):
+def _generate_summary(daily, filtered_minute, hc, hv, hr, hvr, mc, mv, mr, mvr, sh, sm, zone_diagnostics=None):
     """Generate summary statistics box."""
     
     total_days = len(daily)
@@ -1697,13 +2448,115 @@ def _generate_summary(daily, filtered_minute, hc, hv, hr, hvr, mc, mv, mr, mvr, 
         f"Days After Filters: {filtered_days}", html.Br(),
         f"Data Remaining: {filtered_days/total_days*100:.2f}%", html.Br(),
         html.Br(),
+    ]
+    
+    # Add zone filter diagnostics if available
+    if zone_diagnostics:
+        summary.extend([
+            html.B("📊 Zone Filter Diagnostics", style={'color': '#2c3e50', 'fontSize': '14px'}), html.Br(),
+            f"Total Days: {zone_diagnostics['total_days']}", html.Br(),
+            f"Days Remaining: {zone_diagnostics['days_remaining']}", html.Br(),
+            f"Days Dropped: {zone_diagnostics['days_dropped']}", html.Br(),
+            html.Br(),
+        ])
         
+        # Add per-filter diagnostics
+        for filter_name, filter_results in zone_diagnostics.get('filter_results', {}).items():
+            if filter_results['enabled']:
+                summary.extend([
+                    html.B(f"Filter: {filter_name}", style={'fontSize': '12px'}), html.Br(),
+                    f"Target: {filter_results['target_pct']:.2f}% ± {filter_results['tolerance_pct']:.2f}%", html.Br(),
+                    f"Start: T{filter_results['start_offset']:+d} {filter_results['start_hour']:02d}:{filter_results['start_minute']:02d}", html.Br(),
+                    f"End: T{filter_results['end_offset']:+d} {filter_results['end_hour']:02d}:{filter_results['end_minute']:02d}", html.Br(),
+                    f"Passing: {filter_results['passing_days']} | Failing: {filter_results['failing_days']}", html.Br(),
+                ])
+                
+                # Show failure reasons if any
+                if filter_results.get('fail_reasons'):
+                    # Count failure types
+                    missing_count = sum(1 for r in filter_results['fail_reasons'].values() if 'missing' in r.lower() or 'insufficient' in r.lower())
+                    range_count = filter_results['failing_days'] - missing_count
+                    summary.extend([
+                        f"  - Missing bars: {missing_count}", html.Br(),
+                        f"  - Out of range: {range_count}", html.Br(),
+                    ])
+                
+                summary.append(html.Br())
+        
+        summary.append(html.Br())
+    
+    summary.extend([
         html.B("Mean Variances (scaled)"), html.Br(),
         f"Hourly %∆ Var: {sh:.1f}", html.Br(),
         f"Hourly Range Var: {hvr.mean():.6f}", html.Br(),
         f"Minute %∆ Var: {sm:.1f}", html.Br(),
         f"Minute Range Var: {mvr.mean():.6f}", html.Br(),
-    ]
+    ])
+    
+    # Add filtered day statistics if filters were applied
+    if filtered_days > 0 and filtered_days < total_days:
+        try:
+            filtered_stats = compute_filtered_day_stats(filtered_minute, daily)
+            if filtered_stats:
+                summary.extend([
+                    html.Br(),
+                    html.B("📊 Filtered Days Statistics", style={'color': '#2c3e50', 'fontSize': '14px'}), html.Br(),
+                    html.Br(),
+                    
+                    html.B("Close-Open (%)", style={'fontSize': '12px'}), html.Br(),
+                    f"Mean: {filtered_stats['close_open_pct']['mean']:.2f}% | "
+                    f"Median: {filtered_stats['close_open_pct']['median']:.2f}% | "
+                    f"Std: {filtered_stats['close_open_pct']['std']:.2f}%", html.Br(),
+                    html.Br(),
+                    
+                    html.B("Range (%)", style={'fontSize': '12px'}), html.Br(),
+                    f"Mean: {filtered_stats['range_pct']['mean']:.2f}% | "
+                    f"Median: {filtered_stats['range_pct']['median']:.2f}% | "
+                    f"Std: {filtered_stats['range_pct']['std']:.2f}%", html.Br(),
+                    html.Br(),
+                    
+                    html.B("High-Open (%)", style={'fontSize': '12px'}), html.Br(),
+                    f"Mean: {filtered_stats['high_open_pct']['mean']:.2f}% | "
+                    f"Median: {filtered_stats['high_open_pct']['median']:.2f}% | "
+                    f"Std: {filtered_stats['high_open_pct']['std']:.2f}%", html.Br(),
+                    html.Br(),
+                    
+                    html.B("Open-Low (%)", style={'fontSize': '12px'}), html.Br(),
+                    f"Mean: {filtered_stats['open_low_pct']['mean']:.2f}% | "
+                    f"Median: {filtered_stats['open_low_pct']['median']:.2f}% | "
+                    f"Std: {filtered_stats['open_low_pct']['std']:.2f}%", html.Br(),
+                ])
+                
+                # Add first hour stats if available
+                if 'first_hour_high_open_pct' in filtered_stats:
+                    summary.extend([
+                        html.Br(),
+                        html.B("First Hour (9:30-10:30)", style={'fontSize': '12px'}), html.Br(),
+                        html.B("High-Open (%)", style={'fontSize': '11px', 'fontWeight': 'normal'}), html.Br(),
+                        f"Mean: {filtered_stats['first_hour_high_open_pct']['mean']:.2f}% | "
+                        f"Median: {filtered_stats['first_hour_high_open_pct']['median']:.2f}%", html.Br(),
+                        html.B("Open-Low (%)", style={'fontSize': '11px', 'fontWeight': 'normal'}), html.Br(),
+                        f"Mean: {filtered_stats['first_hour_open_low_pct']['mean']:.2f}% | "
+                        f"Median: {filtered_stats['first_hour_open_low_pct']['median']:.2f}%", html.Br(),
+                    ])
+                
+                # Add additional stats
+                summary.extend([
+                    html.Br(),
+                    html.B("Additional Stats", style={'fontSize': '12px'}), html.Br(),
+                    f"Green Days: {filtered_stats['green_days']} ({filtered_stats['green_pct']:.1f}%)", html.Br(),
+                ])
+                
+                if 'avg_hod_time' in filtered_stats:
+                    summary.extend([
+                        f"Avg HOD Time: {filtered_stats['avg_hod_time']:.2f}h | "
+                        f"Avg LOD Time: {filtered_stats['avg_lod_time']:.2f}h", html.Br()
+                    ])
+        except Exception as e:
+            # Silently fail if stats calculation has issues
+            import traceback
+            traceback.print_exc()
+            pass
     
     return summary
     
@@ -2101,10 +2954,41 @@ def register_profile_callbacks(app, cache):
             State('weekly-from-year', 'value'),
             State('weekly-to-month', 'value'),
             State('weekly-to-year', 'value'),
+            # Percentage change zone filters
+            State('prev-ny-enabled', 'value'),
+            State('prev-ny-target', 'value'),
+            State('prev-ny-tolerance', 'value'),
+            State('prev-ny-start-day', 'value'),
+            State('prev-ny-start-hour', 'value'),
+            State('prev-ny-start-minute', 'value'),
+            State('prev-ny-end-day', 'value'),
+            State('prev-ny-end-hour', 'value'),
+            State('prev-ny-end-minute', 'value'),
+            State('zone1-enabled', 'value'),
+            State('zone1-target', 'value'),
+            State('zone1-tolerance', 'value'),
+            State('zone1-start-day', 'value'),
+            State('zone1-start-hour', 'value'),
+            State('zone1-start-minute', 'value'),
+            State('zone1-end-day', 'value'),
+            State('zone1-end-hour', 'value'),
+            State('zone1-end-minute', 'value'),
+            State('zone2-enabled', 'value'),
+            State('zone2-target', 'value'),
+            State('zone2-tolerance', 'value'),
+            State('zone2-start-day', 'value'),
+            State('zone2-start-hour', 'value'),
+            State('zone2-start-minute', 'value'),
+            State('zone2-end-day', 'value'),
+            State('zone2-end-hour', 'value'),
+            State('zone2-end-minute', 'value'),
         ]
     )
-    @cache.memoize(timeout=300)  # Reduced timeout to 5 minutes
-    def update_graphs_simple(n_daily, n_hour, n_weekly, n_monthly, prod, start, end, mh, filters, vol_thr, pct_thr, median_pct, selected_measures, tA_h, tA_m, tB_h, tB_m, monthly_from_month, monthly_from_year, monthly_to_month, monthly_to_year, weekly_from_month, weekly_from_year, weekly_to_month, weekly_to_year):
+    @cache.memoize(timeout=3600)  # OPTIMIZED: 1 hour cache for historical data
+    def update_graphs_simple(n_daily, n_hour, n_weekly, n_monthly, prod, start, end, mh, filters, vol_thr, pct_thr, median_pct, selected_measures, tA_h, tA_m, tB_h, tB_m, monthly_from_month, monthly_from_year, monthly_to_month, monthly_to_year, weekly_from_month, weekly_from_year, weekly_to_month, weekly_to_year,
+                             prev_ny_enabled, prev_ny_target, prev_ny_tol, prev_ny_sd, prev_ny_sh, prev_ny_sm, prev_ny_ed, prev_ny_eh, prev_ny_em,
+                             zone1_enabled, zone1_target, zone1_tol, zone1_sd, zone1_sh, zone1_sm, zone1_ed, zone1_eh, zone1_em,
+                             zone2_enabled, zone2_target, zone2_tol, zone2_sd, zone2_sh, zone2_sm, zone2_ed, zone2_eh, zone2_em):
         """Main callback to update all charts and summary."""
         # Determine which button was clicked
         ctx = dash.callback_context
@@ -2196,6 +3080,78 @@ def register_profile_callbacks(app, cache):
                     import traceback
                     traceback.print_exc()
                     raise
+            
+            # Apply percentage change zone filters (NEW ROBUST IMPLEMENTATION)
+            zone_diagnostics = None
+            try:
+                # Parse zone filter specifications
+                zone_specs = []
+                
+                # Prev NY session filter
+                prev_ny_spec = parse_zone_spec(
+                    enabled=bool(prev_ny_enabled and True in prev_ny_enabled),
+                    name="prev_ny",
+                    target_pct=prev_ny_target if prev_ny_target is not None else 0.0,
+                    tolerance_pct=prev_ny_tol,
+                    start_day_offset=prev_ny_sd if prev_ny_sd is not None else -1,
+                    start_hour=prev_ny_sh if prev_ny_sh is not None else 9,
+                    start_minute=prev_ny_sm if prev_ny_sm is not None else 30,
+                    end_day_offset=prev_ny_ed if prev_ny_ed is not None else -1,
+                    end_hour=prev_ny_eh if prev_ny_eh is not None else 16,
+                    end_minute=prev_ny_em if prev_ny_em is not None else 0
+                )
+                if prev_ny_spec:
+                    zone_specs.append(prev_ny_spec)
+                
+                # Zone 1 filter
+                zone1_spec = parse_zone_spec(
+                    enabled=bool(zone1_enabled and True in zone1_enabled),
+                    name="zone1",
+                    target_pct=zone1_target if zone1_target is not None else 0.0,
+                    tolerance_pct=zone1_tol,
+                    start_day_offset=zone1_sd if zone1_sd is not None else -1,
+                    start_hour=zone1_sh if zone1_sh is not None else 16,
+                    start_minute=zone1_sm if zone1_sm is not None else 0,
+                    end_day_offset=zone1_ed if zone1_ed is not None else 0,
+                    end_hour=zone1_eh if zone1_eh is not None else 8,
+                    end_minute=zone1_em if zone1_em is not None else 0
+                )
+                if zone1_spec:
+                    zone_specs.append(zone1_spec)
+                
+                # Zone 2 filter
+                zone2_spec = parse_zone_spec(
+                    enabled=bool(zone2_enabled and True in zone2_enabled),
+                    name="zone2",
+                    target_pct=zone2_target if zone2_target is not None else 0.0,
+                    tolerance_pct=zone2_tol,
+                    start_day_offset=zone2_sd if zone2_sd is not None else 0,
+                    start_hour=zone2_sh if zone2_sh is not None else 8,
+                    start_minute=zone2_sm if zone2_sm is not None else 0,
+                    end_day_offset=zone2_ed if zone2_ed is not None else 0,
+                    end_hour=zone2_eh if zone2_eh is not None else 9,
+                    end_minute=zone2_em if zone2_em is not None else 30
+                )
+                if zone2_spec:
+                    zone_specs.append(zone2_spec)
+                
+                # Apply zone filters if any are enabled
+                if zone_specs:
+                    before_zone = len(filtered_minute)
+                    filtered_minute, zone_diagnostics = apply_zone_filters(
+                        filtered_minute,
+                        zone_specs,
+                        product=prod,
+                        timezone_str='America/New_York'
+                    )
+                    debug_msgs.append(f"After zone filters: {before_zone} -> {len(filtered_minute)} rows ({zone_diagnostics['days_remaining']}/{zone_diagnostics['total_days']} days)")
+                    print(f"[ZONE FILTERS] Diagnostics: {zone_diagnostics}")
+                else:
+                    debug_msgs.append("No zone filters enabled")
+            except Exception as zone_filter_error:
+                import traceback
+                traceback.print_exc()
+                debug_msgs.append(f"Error applying zone filters: {zone_filter_error}")
             
             # Compute statistics (now includes all 4 measures)
             try:
@@ -2531,7 +3487,7 @@ def register_profile_callbacks(app, cache):
             
             # Generate summary
             summary = _generate_summary(
-                daily, filtered_minute, hc, hv, hr, hvr, mc, mv, mr, mvr, sh, sm
+                daily, filtered_minute, hc, hv, hr, hvr, mc, mv, mr, mvr, sh, sm, zone_diagnostics
             )
             # Append debug information at the bottom of the summary
             if debug_msgs:

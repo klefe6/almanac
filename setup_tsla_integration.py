@@ -180,7 +180,7 @@ def print_setup_instructions():
    python setup_tsla_integration.py
 
 5. START THE APPLICATION:
-   python run.py
+   python runalmanac.py
 """)
 
 def main():

@@ -83,6 +83,46 @@ def get_previous_trading_day(
     return prev.date()
 
 
+def get_next_trading_day(
+    current_date: date | str | pd.Timestamp,
+    exchange: str = "CME"
+) -> date:
+    """
+    Get the next trading day, accounting for holidays and weekends.
+    
+    Args:
+        current_date: Reference date
+        exchange: Exchange to use for trading calendar
+        
+    Returns:
+        Next trading day as date object
+    """
+    if isinstance(current_date, str):
+        current_date = pd.Timestamp(current_date).date()
+    elif isinstance(current_date, pd.Timestamp):
+        current_date = current_date.date()
+    
+    if HAS_MARKET_CALENDARS:
+        try:
+            cal = get_exchange_calendar(exchange)
+            # Get valid trading days after current_date
+            schedule = cal.valid_days(
+                start_date=pd.Timestamp(current_date),
+                end_date=pd.Timestamp(current_date) + pd.Timedelta(days=10)
+            )
+            
+            # Find the next trading day
+            valid_dates = schedule[schedule > pd.Timestamp(current_date)]
+            if len(valid_dates) > 0:
+                return valid_dates[0].date()
+        except Exception:
+            pass
+    
+    # Fallback: Use business day approximation
+    next_day = pd.Timestamp(current_date) + pd.tseries.offsets.BDay(1)
+    return next_day.date()
+
+
 def is_trading_day(check_date: date | str | pd.Timestamp, exchange: str = "CME") -> bool:
     """
     Check if a given date is a trading day.

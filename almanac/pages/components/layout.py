@@ -107,9 +107,9 @@ def create_sidebar_content():
             )
         ], style={'marginBottom': '20px', 'padding': '10px', 'backgroundColor': '#f8f9fa', 'borderRadius': '5px'}),
         
-        # Monthly Analysis Section
+        # Month-of-Year Analysis Section
         html.Div([
-            html.H4("📊 MONTHLY ANALYSIS", style={
+            html.H4("📊 MONTH-OF-YEAR ANALYSIS", style={
                 'color': '#2c3e50',
                 'fontWeight': 'bold',
                 'marginBottom': '15px',
@@ -385,9 +385,9 @@ def create_sidebar_content():
             'boxShadow': '0 2px 4px rgba(0,0,0,0.1)'
         }),
         
-        # Daily Analysis Section
+        # Day-of-Week Analysis Section
         html.Div([
-            html.H4("📈 DAILY ANALYSIS", style={
+            html.H4("📈 DAY-OF-WEEK ANALYSIS", style={
                 'color': '#2c3e50',
                 'fontWeight': 'bold',
                 'marginBottom': '15px',
@@ -446,9 +446,9 @@ def create_sidebar_content():
             'boxShadow': '0 2px 4px rgba(0,0,0,0.1)'
         }),
         
-        # Hourly Analysis Section
+        # Hour-of-Day Analysis Section
         html.Div([
-            html.H4("⏰ HOURLY ANALYSIS", style={
+            html.H4("⏰ HOUR-OF-DAY ANALYSIS", style={
                 'color': '#2c3e50',
                 'fontWeight': 'bold',
                 'marginBottom': '15px',

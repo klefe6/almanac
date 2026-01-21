@@ -36,7 +36,7 @@ def validate_product(product: str) -> bool:
     valid_products = [
         'ES', 'NQ', 'YM', 'RTY', 'CL', 'GC', 'SI', 'NG',
         'ZB', 'ZN', 'ZF', 'ZT', 'EURUSD', 'GBPUSD', 'USDJPY',
-        'AUDUSD', 'USDCAD', 'NZDUSD', 'USDCHF'
+        'AUDUSD', 'USDCAD', 'NZDUSD', 'USDCHF', 'TSLA', 'BTCUSD'
     ]
     
     if product.upper() not in valid_products:

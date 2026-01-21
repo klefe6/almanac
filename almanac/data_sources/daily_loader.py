@@ -32,9 +32,10 @@ def load_daily_data(
     
     Tries file-based loading first, falls back to database if files not available.
     For TSLA, generates daily data from minute data via Alpaca API.
+    For BTCUSD and other crypto, generates daily data from minute data via Yahoo Finance API.
     
     Args:
-        product: Contract ID (e.g., 'ES', 'NQ', 'GC', 'TSLA')
+        product: Contract ID (e.g., 'ES', 'NQ', 'GC', 'TSLA', 'BTCUSD')
         start_date: Start date (YYYY-MM-DD or datetime)
         end_date: End date (YYYY-MM-DD or datetime)
         add_derived_fields: Whether to add derived fields (date, rolling volumes, etc.)
@@ -46,6 +47,42 @@ def load_daily_data(
     Raises:
         ValueError: If no data found
     """
+    # Handle cryptocurrency data (BTCUSD, etc.) by loading from cached files or API
+    try:
+        from .yfinance_loader import is_crypto_symbol, load_crypto_minute_data
+        if is_crypto_symbol(product):
+            try:
+                # First try to load from cached daily file
+                if use_files:
+                    try:
+                        return load_daily_data_from_file(product, start_date, end_date, add_derived_fields)
+                    except Exception as e:
+                        logger.warning(f"Failed to load {product} daily from cache: {e}")
+                
+                # If no cached daily data, try to generate from minute data
+                try:
+                    # Load minute data and convert to daily
+                    minute_df = load_crypto_minute_data(product, start_date, end_date, use_cache=True, validate=False)
+                    
+                    if minute_df.empty:
+                        raise ValueError(f"No {product} data found for date range {start_date} to {end_date}")
+                    
+                    # Convert minute data to daily OHLCV
+                    daily_df = _convert_minute_to_daily(minute_df)
+                    
+                    if add_derived_fields:
+                        daily_df = _add_derived_fields(daily_df)
+                    
+                    return daily_df
+                    
+                except Exception as e:
+                    raise ValueError(f"Failed to load {product} daily data: {e}")
+                
+            except Exception as e:
+                raise ValueError(f"Failed to load {product} daily data: {e}")
+    except ImportError:
+        pass  # yfinance_loader not available, continue with normal flow
+    
     # Handle TSLA data by loading from cached files
     if product == 'TSLA':
         try:

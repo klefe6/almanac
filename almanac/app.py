@@ -235,14 +235,32 @@ def get_monitored_cache():
 # Create monitored cache instance
 monitored_cache = get_monitored_cache()
 
-# Import and register page callbacks
-from .pages.profile import create_profile_layout, register_profile_callbacks
+# Flag to track if app has been initialized
+_app_initialized = False
 
-# Create layout
-app.layout = create_profile_layout()
 
-# Register callbacks with monitored cache
-register_profile_callbacks(app, monitored_cache)
+def _initialize_app():
+    """Initialize the Dash app layout and callbacks."""
+    global _app_initialized
+    if _app_initialized:
+        return
+    
+    try:
+        # Import and register page callbacks
+        from .pages.profile import create_profile_layout, register_profile_callbacks
+        
+        # Create layout
+        app.layout = create_profile_layout()
+        
+        # Register callbacks with monitored cache
+        register_profile_callbacks(app, monitored_cache)
+        
+        _app_initialized = True
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"Failed to initialize app: {e}", exc_info=True)
+        raise
 
 
 def run_server(host='127.0.0.1', port=8085, debug=True):
@@ -254,6 +272,8 @@ def run_server(host='127.0.0.1', port=8085, debug=True):
         port: Port number
         debug: Whether to run in debug mode
     """
+    # Initialize app before running (lazy initialization)
+    _initialize_app()
     app.run(host=host, port=port, debug=debug)
 
 

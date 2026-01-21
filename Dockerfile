@@ -51,7 +51,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 EXPOSE 8085
 
 # Default command
-CMD ["python", "run.py", "--host", "0.0.0.0", "--port", "8085", "--no-debug"]
+CMD ["python", "runalmanac.py", "--host", "0.0.0.0", "--port", "8085", "--no-debug"]
 
 # Development stage
 FROM base as development
@@ -72,7 +72,7 @@ RUN pip install --no-cache-dir \
 USER almanac
 
 # Override command for development
-CMD ["python", "run.py", "--host", "0.0.0.0", "--port", "8085", "--debug"]
+CMD ["python", "runalmanac.py", "--host", "0.0.0.0", "--port", "8085", "--debug"]
 
 # Production stage
 FROM base as production

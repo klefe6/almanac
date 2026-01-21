@@ -4,7 +4,7 @@ Profile Page - Clean Version
 Main analysis page showing hourly/minute statistics with filtering capabilities.
 """
 
-from dash import dcc, html, Input, Output, State
+from dash import dcc, html, Input, Output, State, MATCH, ALL
 import dash.dependencies
 import pandas as pd
 import math
@@ -56,6 +56,223 @@ from ..ui.keyboard import (
     create_keyboard_listener,
     register_help_modal_callbacks
 )
+
+from ..features.zone_filters import parse_zone_spec, apply_zone_filters, format_diagnostics
+
+
+def _build_pct_change_filter_box(
+    base_id: str,
+    title: str,
+    default_start: tuple[int, int, int],
+    default_end: tuple[int, int, int],
+    background_color: str,
+    border_color: str,
+    width: str = '100%',
+):
+    """Reusable UI block for a single percent-change zone filter."""
+    day_opts = [
+        {'label': 'T-1', 'value': -1},
+        {'label': 'T-0', 'value': 0},
+        {'label': 'T+1', 'value': 1},
+    ]
+    hour_opts = [{'label': f'{h:02d}', 'value': h} for h in range(0, 24)]
+    minute_opts = [{'label': f'{m:02d}', 'value': m} for m in [0, 15, 30, 45]]
+
+    sd, sh, sm = default_start
+    ed, eh, em = default_end
+
+    return html.Div([
+        # Header with title and toggle
+        html.Div([
+            html.Div([
+                html.Label(title, style={
+                    'fontWeight': 'bold',
+                    'marginBottom': '0px',
+                    'color': '#2c3e50',
+                    'fontSize': '13px',
+                    'display': 'inline-block',
+                    'marginRight': '10px'
+                }),
+                dcc.Checklist(
+                    id=f'{base_id}-enabled',
+                    options=[{'label': ' ON', 'value': True}],
+                    value=[],
+                    style={'display': 'inline-block'},
+                    inputStyle={'marginRight': '4px', 'cursor': 'pointer'},
+                    labelStyle={'fontSize': '11px', 'cursor': 'pointer', 'fontWeight': 'bold'}
+                ),
+            ], style={'display': 'inline-block'}),
+            
+            # Export button at top right
+            html.Div([
+                html.Button(
+                    "📄 Export Dates",
+                    id=f'{base_id}-export-btn',
+                    style={
+                        'fontSize': '10px',
+                        'padding': '2px 6px',
+                        'backgroundColor': '#f8f9fa',
+                        'border': '1px solid #ddd',
+                        'borderRadius': '4px',
+                        'cursor': 'pointer'
+                    },
+                    title=f"Export dates passing {title} filter to Excel"
+                ),
+                dcc.Download(id=f'{base_id}-export-download')
+            ], style={'float': 'right'})
+        ], style={'marginBottom': '12px', 'overflow': 'hidden'}),
+
+        # Target and Tolerance in a row
+        html.Div([
+            html.Div([
+                html.Label("Target (%)", style={
+                    'fontSize': '11px', 
+                    'marginBottom': '4px',
+                    'fontWeight': '600',
+                    'color': '#495057'
+                }),
+                dcc.Input(
+                    id=f'{base_id}-target',
+                    type='number',
+                    value=0.0,
+                    min=-10, max=10, step=0.01,
+                    style={
+                        'width': '100%', 
+                        'fontSize': '12px', 
+                        'padding': '6px',
+                        'border': '1px solid #ced4da',
+                        'borderRadius': '4px'
+                    }
+                )
+            ], style={'width': '22%', 'display': 'inline-block', 'marginRight': '3%'}),
+            html.Div([
+                html.Label("Tolerance ±(%)", style={
+                    'fontSize': '11px', 
+                    'marginBottom': '4px',
+                    'fontWeight': '600',
+                    'color': '#495057'
+                }),
+                dcc.Input(
+                    id=f'{base_id}-tolerance',
+                    type='number',
+                    value=None,
+                    placeholder='0.2',
+                    min=0, step=0.01,
+                    style={
+                        'width': '100%', 
+                        'fontSize': '12px', 
+                        'padding': '6px',
+                        'border': '1px solid #ced4da',
+                        'borderRadius': '4px'
+                    }
+                )
+            ], style={'width': '22%', 'display': 'inline-block'}),
+        ], style={'marginBottom': '14px'}),
+
+        # Start Time - on its own line
+        html.Div([
+            html.Label("Start:", style={
+                'fontSize': '11px', 
+                'marginBottom': '6px',
+                'fontWeight': '600',
+                'color': '#495057',
+                'display': 'block'
+            }),
+            html.Div([
+                dcc.Dropdown(
+                    id=f'{base_id}-start-day',
+                    options=day_opts,
+                    value=sd,
+                    clearable=False,
+                    style={
+                        'width': '28%', 
+                        'display': 'inline-block', 
+                        'marginRight': '3%', 
+                        'fontSize': '11px'
+                    }
+                ),
+                dcc.Dropdown(
+                    id=f'{base_id}-start-hour',
+                    options=hour_opts,
+                    value=sh,
+                    clearable=False,
+                    style={
+                        'width': '33%', 
+                        'display': 'inline-block', 
+                        'marginRight': '3%', 
+                        'fontSize': '11px'
+                    }
+                ),
+                dcc.Dropdown(
+                    id=f'{base_id}-start-minute',
+                    options=minute_opts,
+                    value=sm,
+                    clearable=False,
+                    style={
+                        'width': '33%', 
+                        'display': 'inline-block', 
+                        'fontSize': '11px'
+                    }
+                )
+            ])
+        ], style={'marginBottom': '14px'}),
+
+        # End Time - on its own line
+        html.Div([
+            html.Label("End:", style={
+                'fontSize': '11px', 
+                'marginBottom': '6px',
+                'fontWeight': '600',
+                'color': '#495057',
+                'display': 'block'
+            }),
+            html.Div([
+                dcc.Dropdown(
+                    id=f'{base_id}-end-day',
+                    options=day_opts,
+                    value=ed,
+                    clearable=False,
+                    style={
+                        'width': '28%', 
+                        'display': 'inline-block', 
+                        'marginRight': '3%', 
+                        'fontSize': '11px'
+                    }
+                ),
+                dcc.Dropdown(
+                    id=f'{base_id}-end-hour',
+                    options=hour_opts,
+                    value=eh,
+                    clearable=False,
+                    style={
+                        'width': '33%', 
+                        'display': 'inline-block', 
+                        'marginRight': '3%', 
+                        'fontSize': '11px'
+                    }
+                ),
+                dcc.Dropdown(
+                    id=f'{base_id}-end-minute',
+                    options=minute_opts,
+                    value=em,
+                    clearable=False,
+                    style={
+                        'width': '33%', 
+                        'display': 'inline-block', 
+                        'fontSize': '11px'
+                    }
+                )
+            ])
+        ], style={'marginBottom': '8px'}),
+    ], style={
+        'backgroundColor': background_color,
+        'padding': '14px',
+        'borderRadius': '8px',
+        'border': f'2px solid {border_color}',
+        'marginBottom': '14px',
+        'boxShadow': '0 1px 3px rgba(0,0,0,0.1)',
+        'width': width
+    })
 
 
 def create_preset_row(preset_id, preset_name, day_count, logic_operator="AND"):
@@ -145,11 +362,6 @@ def build_filter_panel(prefix: str, title: str, header_color: str = '#2196f3'):
             {'label': '💥 Prev-Day: %∆ ≤ -Threshold', 'value': 'prev_pct_neg'},
             {'label': '📊 Prev-Day: Volume ≥ Threshold', 'value': 'relvol_gt'},
             {'label': '✂️ Exclude Top/Bottom 5%', 'value': 'trim_extremes'},
-            {'label': '📅 Monday', 'value': 'monday'},
-            {'label': '📅 Tuesday', 'value': 'tuesday'},
-            {'label': '📅 Wednesday', 'value': 'wednesday'},
-            {'label': '📅 Thursday', 'value': 'thursday'},
-            {'label': '📅 Friday', 'value': 'friday'},
         ]
         controls = [
             html.Div([
@@ -164,11 +376,17 @@ def build_filter_panel(prefix: str, title: str, header_color: str = '#2196f3'):
     elif prefix == 'hourly':
         filter_options = [
             {'label': '📅 FOMC Day', 'value': 'fomc_days'},
+            {'label': '📅 FOMC Week', 'value': 'fomc_week'},
             {'label': '📊 CPI Day', 'value': 'cpi_days'},
             {'label': '📈 Prev Hour %∆ > Threshold', 'value': 'prev_hour_pct'},
             {'label': '📊 High Volume Hour', 'value': 'high_vol_hour'},
             {'label': '⚡ Power Hour Only (15:00)', 'value': 'power_hour'},
             {'label': '✂️ Exclude Top/Bottom 5%', 'value': 'trim_extremes'},
+            {'label': '📅 Monday', 'value': 'monday'},
+            {'label': '📅 Tuesday', 'value': 'tuesday'},
+            {'label': '📅 Wednesday', 'value': 'wednesday'},
+            {'label': '📅 Thursday', 'value': 'thursday'},
+            {'label': '📅 Friday', 'value': 'friday'},
         ]
         controls = [
             html.Div([
@@ -188,6 +406,11 @@ def build_filter_panel(prefix: str, title: str, header_color: str = '#2196f3'):
             {'label': '🔻 After LOD', 'value': 'after_lod'},
             {'label': '📊 VWAP Cross Only', 'value': 'vwap_cross'},
             {'label': '✂️ Exclude Top/Bottom 5%', 'value': 'trim_extremes'},
+            {'label': '📅 Monday', 'value': 'monday'},
+            {'label': '📅 Tuesday', 'value': 'tuesday'},
+            {'label': '📅 Wednesday', 'value': 'wednesday'},
+            {'label': '📅 Thursday', 'value': 'thursday'},
+            {'label': '📅 Friday', 'value': 'friday'},
         ]
         controls = [
             html.Div([
@@ -296,10 +519,15 @@ def create_sidebar_content():
                             {'label': 'C - Corn', 'value': 'C'},
                             {'label': 'S - Soybeans', 'value': 'S'},
                             {'label': 'W - Wheat', 'value': 'W'},
+                            
+                            # Stocks & Crypto
+                            {'label': '─── STOCKS & CRYPTO ───', 'value': '', 'disabled': True},
+                            {'label': 'TSLA - Tesla Stock', 'value': 'TSLA'},
+                            {'label': 'BTC/USD - Bitcoin', 'value': 'BTCUSD'},
     ]
     
     sidebar_content = [
-        html.H2("📊 Almanac Futures", style={'marginBottom': '20px', 'fontSize': '20px'}),
+        html.H2("Almanac Futures", style={'marginBottom': '20px', 'fontSize': '20px'}),
         
         # Product & Time of Interest Section
         create_accordion_section(
@@ -322,7 +550,7 @@ def create_sidebar_content():
         # Date Range Section
         create_accordion_section(
             'date-range-section',
-            '📅 Date Range',
+            'Date Range',
             [
                 html.Div([
                     html.Div([
@@ -347,7 +575,7 @@ def create_sidebar_content():
                 ], style={'marginBottom': '15px'}),
                 
                 html.Button(
-                    "📊 Max Date Range",
+                    "Max Date Range",
                     id='max-date-range-btn',
                     style={
                         'width': '100%',
@@ -371,7 +599,7 @@ def create_sidebar_content():
         # Statistical Visuals Section
         create_accordion_section(
             'statistical-section',
-            'Statistical Visuals',
+            'Stats',
             [
                 html.Label("Trimming of Mean %", style={'fontWeight': 'bold', 'marginBottom': '5px'}),
                 dcc.Input(
@@ -429,7 +657,7 @@ def create_sidebar_content():
         # Calculate Buttons Section - Individual containers for each button
         create_accordion_section(
             'calc-monthly-section',
-            '🗓️ Monthly Analysis',
+            'Month-of-Year',
             [
                 html.Button(
                     'Calculate Monthly',
@@ -456,7 +684,7 @@ def create_sidebar_content():
         
         create_accordion_section(
             'calc-daily-section',
-            '📅 Daily Analysis',
+            'Day-of-Week',
             [
                 html.Button(
                     'Calculate Daily',
@@ -480,10 +708,51 @@ def create_sidebar_content():
             is_open=True,
             icon='📅'
         ),
+
+        create_accordion_section(
+            'pct-change-section',
+            'Pct Change Filters',
+            [
+                html.Div([
+                    html.Small(
+                        "Applies to both Hour-of-Day and Minute-of-Hour analyses",
+                        style={'color': '#666', 'fontSize': '11px', 'display': 'block', 'marginBottom': '10px'}
+                    ),
+                    _build_pct_change_filter_box(
+                        base_id='prev-ny',
+                        title='% Change of prev NY session',
+                        default_start=(-1, 9, 30),
+                        default_end=(-1, 16, 0),
+                        background_color='#fff3cd',
+                        border_color='#ffc107',
+                        width='110%'
+                    ),
+                    _build_pct_change_filter_box(
+                        base_id='zone1',
+                        title='% Change zone 1',
+                        default_start=(-1, 16, 0),
+                        default_end=(0, 8, 0),
+                        background_color='#d1ecf1',
+                        border_color='#17a2b8',
+                        width='110%'
+                    ),
+                    _build_pct_change_filter_box(
+                        base_id='zone2',
+                        title='% Change zone 2',
+                        default_start=(0, 8, 0),
+                        default_end=(0, 9, 30),
+                        background_color='#d4edda',
+                        border_color='#28a745'
+                    ),
+                ])
+            ],
+            is_open=True,
+            icon='🎯'
+        ),
         
         create_accordion_section(
             'calc-hourly-section',
-            '📊 Hourly Analysis',
+            'Hour-of-Day',
             [
                 html.Button(
                     'Calculate Hourly',
@@ -510,7 +779,7 @@ def create_sidebar_content():
         
         create_accordion_section(
             'calc-minutes-section',
-            '⏱️ Minute Analysis',
+            'Minute-of-Hour',
             [
                 html.Button(
                     'Calculate Minutes',
@@ -557,7 +826,6 @@ def create_sidebar_content():
             html.Div(id='dynamic-preset-rows'),
             html.Span(id='total-cases-display'),
             html.Div(id='preset-status-message'),
-            dcc.Store(id='active-presets-store', data=[], storage_type='session'),
             dcc.Store(id='presets-store', data={}, storage_type='session'),
             html.Div(id='sample-size-display')
         ], style={'display': 'none'}),
@@ -565,63 +833,62 @@ def create_sidebar_content():
         # Action Buttons section removed - calculate button moved to top
         
         # Export Controls (Agent 2 additions)
-        html.Div([
-            html.Hr(style={'margin': '15px 0'}),
-            html.H4("Export & Share", style={'color': '#2c3e50', 'marginBottom': '10px', 'fontSize': '16px'}),
-            
-            # Share URL Button
-            html.Button(
-                '🔗 Share URL',
-                id='share-url-btn',
-                n_clicks=0,
-                style={
-                    'width': '100%',
+        create_accordion_section(
+            'export-section',
+            'Export & Share',
+            [
+                html.Button(
+                    'Share URL',
+                    id='share-url-btn',
+                    n_clicks=0,
+                    style={
+                        'width': '100%',
+                        'padding': '8px',
+                        'marginBottom': '8px',
+                        'backgroundColor': '#28a745',
+                        'color': 'white',
+                        'border': 'none',
+                        'borderRadius': '4px',
+                        'cursor': 'pointer',
+                        'fontSize': '14px'
+                    }
+                ),
+                
+                html.Div(id='share-url-display', style={
+                    'display': 'none',
+                    'marginBottom': '10px',
                     'padding': '8px',
-                    'marginBottom': '8px',
-                    'backgroundColor': '#28a745',
-                    'color': 'white',
-                    'border': 'none',
+                    'backgroundColor': '#e8f5e9',
                     'borderRadius': '4px',
-                    'cursor': 'pointer',
-                    'fontSize': '14px'
-                }
-            ),
-            
-            # Share URL Display
-            html.Div(id='share-url-display', style={
-                'display': 'none',
-                'marginBottom': '10px',
-                'padding': '8px',
-                'backgroundColor': '#e8f5e9',
-                'borderRadius': '4px',
-                'fontSize': '11px',
-                'wordBreak': 'break-all'
-            }),
-            
-            # Download All CSV Button
-            html.Button(
-                '📥 Download All CSV',
-                id='download-all-csv-btn',
-                n_clicks=0,
-                style={
-                    'width': '100%',
-                    'padding': '8px',
-                    'marginBottom': '8px',
-                    'backgroundColor': '#6c757d',
-                    'color': 'white',
-                    'border': 'none',
-                    'borderRadius': '4px',
-                    'cursor': 'pointer',
-                    'fontSize': '14px'
-                }
-            ),
-            
-            # Hidden Download Components
-            dcc.Download(id='download-all-csv'),
-            
-            html.Small("💡 Tip: Use the camera icon on charts to download PNG", 
-                      style={'color': '#666', 'fontSize': '11px'})
-        ], style={'marginTop': '15px'}),
+                    'fontSize': '11px',
+                    'wordBreak': 'break-all'
+                }),
+                
+                html.Button(
+                    'Download All CSV',
+                    id='download-all-csv-btn',
+                    n_clicks=0,
+                    style={
+                        'width': '100%',
+                        'padding': '8px',
+                        'marginBottom': '8px',
+                        'backgroundColor': '#6c757d',
+                        'color': 'white',
+                        'border': 'none',
+                        'borderRadius': '4px',
+                        'cursor': 'pointer',
+                        'fontSize': '14px'
+                    }
+                ),
+                
+                dcc.Download(id='download-all-csv'),
+                
+                html.Small("💡 Tip: Use the camera icon on charts to download PNG", 
+                          style={'color': '#666', 'fontSize': '11px'})
+            ],
+            is_open=True,
+            icon='📤'
+        ),
                 
                 # Summary box
                 html.Div(
@@ -680,25 +947,25 @@ def create_profile_layout():
             className='content-area',
             style={'marginLeft': '22%', 'padding': '20px'},
             children=[
-                html.H3("Monthly Statistics (By Month)"),
+                html.H3("Month-of-Year Statistics"),
                 dcc.Graph(id='monthly-avg', config=get_png_download_config('monthly_avg_change')),
                 dcc.Graph(id='monthly-var', config=get_png_download_config('monthly_var_change')),
                 dcc.Graph(id='monthly-range', config=get_png_download_config('monthly_avg_range')),
                 dcc.Graph(id='monthly-var-range', config=get_png_download_config('monthly_var_range')),
                 
-                html.H3("Daily Statistics (Day-of-Week Analysis)"),
+                html.H3("Day-of-Week Statistics"),
                 dcc.Graph(id='d-avg', config=get_png_download_config('daily_avg_change')),
                 dcc.Graph(id='d-var', config=get_png_download_config('daily_var_change')),
                 dcc.Graph(id='d-range', config=get_png_download_config('daily_avg_range')),
                 dcc.Graph(id='d-var-range', config=get_png_download_config('daily_var_range')),
                 
-                html.H3("Hourly Statistics"),
+                html.H3("Hour-of-Day Statistics"),
                 dcc.Graph(id='h-avg', config=get_png_download_config('hourly_avg_change')),
                 dcc.Graph(id='h-var', config=get_png_download_config('hourly_var_change')),
                 dcc.Graph(id='h-range', config=get_png_download_config('hourly_avg_range')),
                 dcc.Graph(id='h-var-range', config=get_png_download_config('hourly_var_range')),
                 
-                html.H3("Minute Statistics"),
+                html.H3("Minute-of-Hour Statistics"),
                 dcc.Graph(id='m-avg', config=get_png_download_config('minute_avg_change')),
                 dcc.Graph(id='m-var', config=get_png_download_config('minute_var_change')),
                 dcc.Graph(id='m-range', config=get_png_download_config('minute_avg_range')),
@@ -781,7 +1048,7 @@ def register_profile_callbacks_old_DISABLED(app, cache):
             State('timeB-minute', 'value'),
         ]
     )
-    @cache.memoize(timeout=300)  # Reduced timeout to 5 minutes
+    @cache.memoize(timeout=3600)  # OPTIMIZED: 1 hour cache for historical data
     def update_hourly_graphs(n, prod, start, end, mh, filters, vol_thr, pct_thr, median_pct, selected_measures, tA_h, tA_m, tB_h, tB_m):
         """Main callback to update all charts and summary."""
         print(f"\n[DEBUG] Callback triggered: n_clicks={n}")
@@ -882,7 +1149,7 @@ def register_profile_callbacks_old_DISABLED(app, cache):
                 trim_pct = median_pct or 5.0
                 selected_measures = selected_measures or ['mean', 'trimmed_mean', 'median', 'mode']
                 
-                # Compute hourly stats with all 5 measures (including outlier)
+                # Compute hourly stats - all 5 measures (including outlier)
                 hc, hcm, hmed, hmode, houtlier, hv, hr, hrm, hmed_r, hmode_r, houtlier_r, hvr = compute_hourly_stats(filtered_minute, trim_pct)
                 
                 # Compute minute stats with all 5 measures (including outlier)
@@ -1208,7 +1475,7 @@ def register_profile_callbacks_old_DISABLED(app, cache):
                 f"{filtered_days} cases",  # Total cases display
                 {'width': '100%', 'height': '20px', 'backgroundColor': '#28a745', 'borderRadius': '10px', 'transition': 'width 0.3s ease'},  # Progress bar complete
                 {'width': '100%', 'height': '20px', 'backgroundColor': '#e9ecef', 'borderRadius': '10px', 'overflow': 'hidden', 'marginBottom': '10px', 'display': 'none'},  # Hide container
-                "Hourly analysis complete!"  # Status message
+                "Hour-of-Day analysis complete!"  # Status message
             )
         
             print(f"[DEBUG] Callback completed successfully!")
@@ -1242,7 +1509,7 @@ def _scale_variance(v):
     return v * (10 ** exp), exp
 
 
-def _generate_summary(daily, filtered_minute, hc, hv, hr, hvr, mc, mv, mr, mvr, sh, sm):
+def _generate_summary(daily, filtered_minute, hc, hv, hr, hvr, mc, mv, mr, mvr, sh, sm, zone_diagnostics=None):
     """Generate summary statistics box."""
     
     total_days = len(daily)
@@ -1278,6 +1545,15 @@ def _generate_summary(daily, filtered_minute, hc, hv, hr, hvr, mc, mv, mr, mvr, 
         f"Minute Range Var: {mvr.mean():.6f}", html.Br(),
     ]
     
+    if zone_diagnostics:
+        summary += [
+            html.Hr(),
+            html.B("🎯 Percentage Change Filters (Diagnostics)"),
+            html.Br(),
+        ]
+        for line in format_diagnostics(zone_diagnostics):
+            summary.append(html.Div(line, style={'fontSize': '11px', 'color': '#2c3e50'}))
+
     return summary
     
 
@@ -1605,19 +1881,58 @@ def register_profile_callbacks(app, cache):
             State('timeA-minute', 'value'),
             State('timeB-hour', 'value'),
             State('timeB-minute', 'value'),
+            State('hourly-filters', 'value'),
+            State('hourly-vol-threshold', 'value'),
+            State('hourly-pct-threshold', 'value'),
+            # Percentage change zone filters (shared)
+            State('prev-ny-enabled', 'value'),
+            State('prev-ny-target', 'value'),
+            State('prev-ny-tolerance', 'value'),
+            State('prev-ny-start-day', 'value'),
+            State('prev-ny-start-hour', 'value'),
+            State('prev-ny-start-minute', 'value'),
+            State('prev-ny-end-day', 'value'),
+            State('prev-ny-end-hour', 'value'),
+            State('prev-ny-end-minute', 'value'),
+
+            State('zone1-enabled', 'value'),
+            State('zone1-target', 'value'),
+            State('zone1-tolerance', 'value'),
+            State('zone1-start-day', 'value'),
+            State('zone1-start-hour', 'value'),
+            State('zone1-start-minute', 'value'),
+            State('zone1-end-day', 'value'),
+            State('zone1-end-hour', 'value'),
+            State('zone1-end-minute', 'value'),
+
+            State('zone2-enabled', 'value'),
+            State('zone2-target', 'value'),
+            State('zone2-tolerance', 'value'),
+            State('zone2-start-day', 'value'),
+            State('zone2-start-hour', 'value'),
+            State('zone2-start-minute', 'value'),
+            State('zone2-end-day', 'value'),
+            State('zone2-end-hour', 'value'),
+            State('zone2-end-minute', 'value'),
         ]
     )
-    @cache.memoize(timeout=300)  # Reduced timeout to 5 minutes
-    def update_hourly_graphs(n, prod, start, end, mh, filters, vol_thr, pct_thr, median_pct, selected_measures, tA_h, tA_m, tB_h, tB_m):
+    @cache.memoize(timeout=3600)  # OPTIMIZED: 1 hour cache for historical data
+    def update_hourly_graphs(
+        n, prod, start, end, mh, filters, vol_thr, pct_thr, median_pct, selected_measures, tA_h, tA_m, tB_h, tB_m,
+        hourly_filters, hourly_vol_thr, hourly_pct_thr,
+        prev_ny_enabled, prev_ny_target, prev_ny_tol, prev_ny_sd, prev_ny_sh, prev_ny_sm, prev_ny_ed, prev_ny_eh, prev_ny_em,
+        zone1_enabled, zone1_target, zone1_tol, zone1_sd, zone1_sh, zone1_sm, zone1_ed, zone1_eh, zone1_em,
+        zone2_enabled, zone2_target, zone2_tol, zone2_sd, zone2_sh, zone2_sm, zone2_ed, zone2_eh, zone2_em
+    ):
         """Main callback to update all charts and summary."""
         print(f"\n[DEBUG] Callback triggered: n_clicks={n}")
         print(f"[DEBUG] Parameters: prod={prod}, start={start}, end={end}, mh={mh}")
         print(f"[DEBUG] filters={filters}, vol_thr={vol_thr}, pct_thr={pct_thr}")
         print(f"[DEBUG] median_pct={median_pct}, selected_measures={selected_measures}")
-        # Defaults for per-panel overrides
-        active_filters_hr = filters
-        vol_thr_hr = vol_thr
-        pct_thr_hr = pct_thr
+        # Use hourly-prefixed filters if provided, otherwise fall back to global filters
+        active_filters_hr = hourly_filters if hourly_filters else filters
+        vol_thr_hr = hourly_vol_thr if hourly_vol_thr is not None else vol_thr
+        pct_thr_hr = hourly_pct_thr if hourly_pct_thr is not None else pct_thr
         
         # Initialize HOD/LOD variables
         empty_fig = make_line_chart([], [], "No Data", "", "")
@@ -1646,13 +1961,17 @@ def register_profile_callbacks(app, cache):
         
         try:
             debug_msgs = []
-            # Try loading from database first
+            # Try loading from database first - PARALLEL LOADING for 2x speed
             try:
-                daily = load_daily_data(prod, start, end)
-                minute = load_minute_data(prod, start, end)
+                from concurrent.futures import ThreadPoolExecutor
+                with ThreadPoolExecutor(max_workers=2) as executor:
+                    daily_future = executor.submit(load_daily_data, prod, start, end)
+                    minute_future = executor.submit(load_minute_data, prod, start, end)
+                    daily = daily_future.result()
+                    minute = minute_future.result()
                 debug_msgs.append(f"Loaded daily={len(daily)} rows, minute={len(minute)} rows")
                 load_dur = time.perf_counter() - start_time
-                print(f"[PERF] Data load took {load_dur:.2f}s")
+                print(f"[PERF] Parallel data load took {load_dur:.2f}s")
                 debug_msgs.append(f"PERF: load {load_dur:.2f}s")
                 
                 # Intermarket data loading disabled in simplified version
@@ -1708,6 +2027,79 @@ def register_profile_callbacks(app, cache):
                     import traceback
                     traceback.print_exc()
                     raise
+
+            # Apply percentage-change zone filters (applies to BOTH hourly and minute stats)
+            zone_diagnostics = None
+            try:
+                zone_specs = []
+
+                def _is_enabled(v):
+                    return bool(v) and (True in v)
+
+                # Prev NY
+                if _is_enabled(prev_ny_enabled):
+                    try:
+                        zone_specs.append(parse_zone_spec(
+                            name='prev_ny',
+                            enabled=True,
+                            target_pct=prev_ny_target,
+                            tolerance_pct=prev_ny_tol,
+                            start_day_offset=prev_ny_sd,
+                            start_hour=prev_ny_sh,
+                            start_minute=prev_ny_sm,
+                            end_day_offset=prev_ny_ed,
+                            end_hour=prev_ny_eh,
+                            end_minute=prev_ny_em
+                        ))
+                    except Exception as e:
+                        debug_msgs.append(f"prev_ny enabled but invalid: {e} (skipping)")
+
+                # Zone1
+                if _is_enabled(zone1_enabled):
+                    try:
+                        zone_specs.append(parse_zone_spec(
+                            name='zone1',
+                            enabled=True,
+                            target_pct=zone1_target,
+                            tolerance_pct=zone1_tol,
+                            start_day_offset=zone1_sd,
+                            start_hour=zone1_sh,
+                            start_minute=zone1_sm,
+                            end_day_offset=zone1_ed,
+                            end_hour=zone1_eh,
+                            end_minute=zone1_em
+                        ))
+                    except Exception as e:
+                        debug_msgs.append(f"zone1 enabled but invalid: {e} (skipping)")
+
+                # Zone2
+                if _is_enabled(zone2_enabled):
+                    try:
+                        zone_specs.append(parse_zone_spec(
+                            name='zone2',
+                            enabled=True,
+                            target_pct=zone2_target,
+                            tolerance_pct=zone2_tol,
+                            start_day_offset=zone2_sd,
+                            start_hour=zone2_sh,
+                            start_minute=zone2_sm,
+                            end_day_offset=zone2_ed,
+                            end_hour=zone2_eh,
+                            end_minute=zone2_em
+                        ))
+                    except Exception as e:
+                        debug_msgs.append(f"zone2 enabled but invalid: {e} (skipping)")
+
+                # Remove any Nones (in case we ever return None in future)
+                zone_specs = [s for s in zone_specs if s is not None]
+
+                if zone_specs:
+                    before_zone = len(filtered_minute)
+                    filtered_minute, zone_diagnostics = apply_zone_filters(filtered_minute, zone_specs)
+                    debug_msgs.append(f"After zone filters: {before_zone} -> {len(filtered_minute)} rows")
+                    debug_msgs.append(f"Zone days remaining: {zone_diagnostics.get('days_remaining')} / {zone_diagnostics.get('total_days')}")
+            except Exception as e:
+                debug_msgs.append(f"Error applying zone filters: {e}")
             
             # Compute statistics (now includes all 4 measures)
             try:
@@ -1715,7 +2107,7 @@ def register_profile_callbacks(app, cache):
                 trim_pct = median_pct or 5.0
                 selected_measures = selected_measures or ['mean', 'trimmed_mean', 'median', 'mode']
                 
-                # Compute hourly stats with all 5 measures (including outlier)
+                # Compute hourly stats - all 5 measures (including outlier)
                 stats_t0 = time.perf_counter()
                 hc, hcm, hmed, hmode, houtlier, hv, hr, hrm, hmed_r, hmode_r, houtlier_r, hvr = compute_hourly_stats(filtered_minute, trim_pct)
                 # Compute minute stats with all 5 measures (including outlier)
@@ -2004,7 +2396,7 @@ def register_profile_callbacks(app, cache):
             
             # Generate summary
             summary = _generate_summary(
-                daily, filtered_minute, hc, hv, hr, hvr, mc, mv, mr, mvr, sh, sm
+                daily, filtered_minute, hc, hv, hr, hvr, mc, mv, mr, mvr, sh, sm, zone_diagnostics
             )
             # Append debug information at the bottom of the summary
             if debug_msgs:
@@ -2044,7 +2436,7 @@ def register_profile_callbacks(app, cache):
                 f"{filtered_days} cases",  # Total cases display
                 {'width': '100%', 'height': '20px', 'backgroundColor': '#28a745', 'borderRadius': '10px', 'transition': 'width 0.3s ease'},  # Progress bar complete
                 {'width': '100%', 'height': '20px', 'backgroundColor': '#e9ecef', 'borderRadius': '10px', 'overflow': 'hidden', 'marginBottom': '10px', 'display': 'none'},  # Hide container
-                "Hourly analysis complete!"  # Status message
+                "Hour-of-Day analysis complete!"  # Status message
             )
             
             print(f"[DEBUG] Callback completed successfully!")
@@ -2095,11 +2487,49 @@ def register_profile_callbacks(app, cache):
             State('timeA-minute', 'value'),
             State('timeB-hour', 'value'),
             State('timeB-minute', 'value'),
+            State('minute-filters', 'value'),
+            State('minute-vol-threshold', 'value'),
+            # Percentage change zone filters (shared)
+            State('prev-ny-enabled', 'value'),
+            State('prev-ny-target', 'value'),
+            State('prev-ny-tolerance', 'value'),
+            State('prev-ny-start-day', 'value'),
+            State('prev-ny-start-hour', 'value'),
+            State('prev-ny-start-minute', 'value'),
+            State('prev-ny-end-day', 'value'),
+            State('prev-ny-end-hour', 'value'),
+            State('prev-ny-end-minute', 'value'),
+
+            State('zone1-enabled', 'value'),
+            State('zone1-target', 'value'),
+            State('zone1-tolerance', 'value'),
+            State('zone1-start-day', 'value'),
+            State('zone1-start-hour', 'value'),
+            State('zone1-start-minute', 'value'),
+            State('zone1-end-day', 'value'),
+            State('zone1-end-hour', 'value'),
+            State('zone1-end-minute', 'value'),
+
+            State('zone2-enabled', 'value'),
+            State('zone2-target', 'value'),
+            State('zone2-tolerance', 'value'),
+            State('zone2-start-day', 'value'),
+            State('zone2-start-hour', 'value'),
+            State('zone2-start-minute', 'value'),
+            State('zone2-end-day', 'value'),
+            State('zone2-end-hour', 'value'),
+            State('zone2-end-minute', 'value'),
         ],
         prevent_initial_call=True
     )
-    @cache.memoize(timeout=300)
-    def update_minute_graphs(n, prod, start, end, mh, filters, vol_thr, pct_thr, median_pct, selected_measures, tA_h, tA_m, tB_h, tB_m):
+    @cache.memoize(timeout=3600)  # OPTIMIZED: 1 hour cache for historical data
+    def update_minute_graphs(
+        n, prod, start, end, mh, filters, vol_thr, pct_thr, median_pct, selected_measures, tA_h, tA_m, tB_h, tB_m,
+        minute_filters, minute_vol_thr,
+        prev_ny_enabled, prev_ny_target, prev_ny_tol, prev_ny_sd, prev_ny_sh, prev_ny_sm, prev_ny_ed, prev_ny_eh, prev_ny_em,
+        zone1_enabled, zone1_target, zone1_tol, zone1_sd, zone1_sh, zone1_sm, zone1_ed, zone1_eh, zone1_em,
+        zone2_enabled, zone2_target, zone2_tol, zone2_sd, zone2_sh, zone2_sm, zone2_ed, zone2_eh, zone2_em
+    ):
         """Callback to update minute charts only."""
         print(f"\n[DEBUG] Minute Callback triggered: n_clicks={n}")
         
@@ -2118,16 +2548,75 @@ def register_profile_callbacks(app, cache):
             
             # Process minute data
             filtered_minute = minute
-            # Prefer minute-prefixed filters if provided
+            # Use minute-prefixed filters if provided, otherwise fall back to global filters
+            active_filters_min = minute_filters if minute_filters else filters
+            vol_thr_min = minute_vol_thr if minute_vol_thr is not None else vol_thr
+            if active_filters_min:
+                filtered_minute = apply_filters(filtered_minute, daily, active_filters_min, vol_thr_min, pct_thr)
+
+            # Apply percentage-change zone filters here too (minute-only run)
             try:
-                ctx_states = dash.callback_context.states
+                zone_specs = []
+
+                def _is_enabled(v):
+                    return bool(v) and (True in v)
+
+                if _is_enabled(prev_ny_enabled):
+                    try:
+                        zone_specs.append(parse_zone_spec(
+                            name='prev_ny',
+                            enabled=True,
+                            target_pct=prev_ny_target,
+                            tolerance_pct=prev_ny_tol,
+                            start_day_offset=prev_ny_sd,
+                            start_hour=prev_ny_sh,
+                            start_minute=prev_ny_sm,
+                            end_day_offset=prev_ny_ed,
+                            end_hour=prev_ny_eh,
+                            end_minute=prev_ny_em
+                        ))
+                    except Exception:
+                        pass
+
+                if _is_enabled(zone1_enabled):
+                    try:
+                        zone_specs.append(parse_zone_spec(
+                            name='zone1',
+                            enabled=True,
+                            target_pct=zone1_target,
+                            tolerance_pct=zone1_tol,
+                            start_day_offset=zone1_sd,
+                            start_hour=zone1_sh,
+                            start_minute=zone1_sm,
+                            end_day_offset=zone1_ed,
+                            end_hour=zone1_eh,
+                            end_minute=zone1_em
+                        ))
+                    except Exception:
+                        pass
+
+                if _is_enabled(zone2_enabled):
+                    try:
+                        zone_specs.append(parse_zone_spec(
+                            name='zone2',
+                            enabled=True,
+                            target_pct=zone2_target,
+                            tolerance_pct=zone2_tol,
+                            start_day_offset=zone2_sd,
+                            start_hour=zone2_sh,
+                            start_minute=zone2_sm,
+                            end_day_offset=zone2_ed,
+                            end_hour=zone2_eh,
+                            end_minute=zone2_em
+                        ))
+                    except Exception:
+                        pass
+
+                zone_specs = [s for s in zone_specs if s is not None]
+                if zone_specs:
+                    filtered_minute, _ = apply_zone_filters(filtered_minute, zone_specs)
             except Exception:
-                ctx_states = {}
-            minute_filters_val = ctx_states.get('minute-filters.value', None)
-            minute_vol = ctx_states.get('minute-vol-threshold.value', None)
-            minute_pct = ctx_states.get('minute-pct-threshold.value', None)
-            if minute_filters_val:
-                filtered_minute = apply_filters(filtered_minute, daily, minute_filters_val, minute_vol, minute_pct)
+                pass
 
             mc, mcm, mmed, mmode, moutlier, mv, mr, mrm, mmed_r, mmode_r, moutlier_r, mvr = compute_minute_stats(filtered_minute, mh, median_pct)
             
@@ -2151,7 +2640,7 @@ def register_profile_callbacks(app, cache):
                 make_line_chart(mvr.index, mvr, f"Min Var Range @ {mh}:00{title_suffix}", "Minute", "Var"),
                 {'width': '100%', 'height': '20px', 'backgroundColor': '#28a745', 'borderRadius': '10px', 'transition': 'width 0.3s ease'},
                 {'width': '100%', 'height': '20px', 'backgroundColor': '#e9ecef', 'borderRadius': '10px', 'overflow': 'hidden', 'marginBottom': '10px', 'display': 'none'},
-                "Minute analysis complete!"
+                "Minute-of-Hour analysis complete!"
             )
             
         except Exception as e:
@@ -2200,7 +2689,7 @@ def register_profile_callbacks(app, cache):
         ],
         prevent_initial_call=True
     )
-    @cache.memoize(timeout=300)
+    @cache.memoize(timeout=3600)  # OPTIMIZED: 1 hour cache for historical data
     def update_monthly_graphs(n, prod, start, end, mh, filters, vol_thr, pct_thr, median_pct, selected_measures, tA_h, tA_m, tB_h, tB_m,
                               m_filters, m_vol, m_pct, m_tA_h, m_tA_m, m_tB_h, m_tB_m):
         """Callback to update monthly charts only."""
@@ -2234,22 +2723,23 @@ def register_profile_callbacks(app, cache):
             tB_h_active = m_tB_h if m_tB_h is not None else tB_h
             tB_m_active = m_tB_m if m_tB_m is not None else tB_m
 
-            # Process data for monthly analysis
-            filtered_minute = minute
+            # Process data for monthly analysis - use daily data instead of minute for performance
+            filtered_daily = daily
             if active_filters:
-                filtered_minute = apply_filters(filtered_minute, daily, active_filters, vol_thr_active, pct_thr_active)
+                # Apply filters to daily data
+                filtered_daily = apply_filters(daily, daily, active_filters, vol_thr_active, pct_thr_active)
             
-            # Compute monthly statistics by month
-            mc, mcm, mmed, mmode, moutlier, mv, mr, mrm, mmed_r, mmode_r, moutlier_r, mvr = compute_monthly_stats(filtered_minute, median_pct or 5.0)
+            # Compute monthly statistics by month using daily data (much faster)
+            mc, mcm, mmed, mmode, moutlier, mv, mr, mrm, mmed_r, mmode_r, moutlier_r, mvr = compute_monthly_stats(filtered_daily, median_pct or 5.0)
             
             stats_dur = time.perf_counter() - start_time
             print(f"[PERF] Monthly stats computation took {stats_dur:.2f}s")
             
-            # Count cases for dynamic titles - use total trading days if no filters
-            filtered_days = filtered_minute['date'].nunique() if 'date' in filtered_minute.columns else 0
-            if filtered_days == 0 and not filters:
+            # Count cases for dynamic titles - use filtered_daily since we're using daily data now
+            filtered_days = len(filtered_daily) if hasattr(filtered_daily, '__len__') else 0
+            if filtered_days == 0 and not active_filters:
                 # No filters applied, use total trading days from daily data
-                filtered_days = daily.index.nunique() if hasattr(daily, 'index') else len(daily)
+                filtered_days = len(daily) if hasattr(daily, '__len__') else 0
             
             # Create dynamic title suffix
             title_suffix = f" | {prod} | {filtered_days} cases | {start} to {end}"
@@ -2265,7 +2755,7 @@ def register_profile_callbacks(app, cache):
                 make_line_chart(mvr.index, mvr, f"Monthly Var Range (by Month){title_suffix}", "Month", "Var"),
                 {'width': '100%', 'height': '20px', 'backgroundColor': '#20c997', 'borderRadius': '10px', 'transition': 'width 0.3s ease'},
                 {'width': '100%', 'height': '20px', 'backgroundColor': '#e9ecef', 'borderRadius': '10px', 'overflow': 'hidden', 'marginBottom': '10px', 'display': 'none'},
-                "Monthly analysis complete!"
+                "Month-of-Year analysis complete!"
             )
             
         except Exception as e:
@@ -2308,7 +2798,7 @@ def register_profile_callbacks(app, cache):
         ],
         prevent_initial_call=True
     )
-    @cache.memoize(timeout=300)
+    @cache.memoize(timeout=3600)  # OPTIMIZED: 1 hour cache for historical data
     def update_daily_graphs(n, prod, start, end, mh, filters, vol_thr, pct_thr, median_pct, selected_measures, tA_h, tA_m, tB_h, tB_m):
         """Callback to update daily day-of-week charts only."""
         print(f"\n[DEBUG] Daily Callback triggered: n_clicks={n}")
@@ -2370,7 +2860,7 @@ def register_profile_callbacks(app, cache):
                 make_line_chart(dvr.index, dvr, f"Daily Var Range (by Day of Week){title_suffix}", "Day of Week", "Var"),
                 {'width': '100%', 'height': '20px', 'backgroundColor': '#28a745', 'borderRadius': '10px', 'transition': 'width 0.3s ease'},
                 {'width': '100%', 'height': '20px', 'backgroundColor': '#e9ecef', 'borderRadius': '10px', 'overflow': 'hidden', 'marginBottom': '10px', 'display': 'none'},
-                "Daily analysis complete!"
+                "Day-of-Week analysis complete!"
             )
             
         except Exception as e:
@@ -2391,7 +2881,7 @@ def register_profile_callbacks(app, cache):
     register_filter_callbacks(app)
     
     # Register accordion callbacks
-    accordion_sections = ['product-time-section', 'statistical-section', 'calc-monthly-section', 'calc-daily-section', 'calc-hourly-section', 'calc-minutes-section', 'filters-section']
+    accordion_sections = ['product-time-section', 'statistical-section', 'calc-monthly-section', 'calc-daily-section', 'pct-change-section', 'calc-hourly-section', 'calc-minutes-section', 'filters-section']
     for section_id in accordion_sections:
         app.clientside_callback(
             """
@@ -2746,3 +3236,144 @@ def register_profile_callbacks(app, cache):
             settings.get('trim_percentage', dash.no_update),
             settings.get('stat_measures', dash.no_update)
         ]
+
+    # --- Export Callbacks for Zone Filters ---
+    def create_zone_export_callback(base_id, zone_name, use_daily=False):
+        @app.callback(
+            Output(f'{base_id}-export-download', 'data'),
+            Input(f'{base_id}-export-btn', 'n_clicks'),
+            [
+                State('product-dropdown', 'value'),
+                State('filter-start-date', 'date'),
+                State('filter-end-date', 'date'),
+                State(f'{base_id}-target', 'value'),
+                State(f'{base_id}-tolerance', 'value'),
+                State(f'{base_id}-start-day', 'value'),
+                State(f'{base_id}-start-hour', 'value'),
+                State(f'{base_id}-start-minute', 'value'),
+                State(f'{base_id}-end-day', 'value'),
+                State(f'{base_id}-end-hour', 'value'),
+                State(f'{base_id}-end-minute', 'value'),
+            ],
+            prevent_initial_call=True
+        )
+        def export_zone_dates(n, prod, start, end, target, tol, sd, sh, sm, ed, eh, em):
+            if not n:
+                return None
+            
+            try:
+                from ..data_sources.calendar import get_previous_trading_day, get_next_trading_day
+                from datetime import datetime, timedelta
+                import pytz
+                
+                # Load data based on filter type
+                if use_daily:
+                    # For prev-ny, use daily candles
+                    daily_df = load_daily_data(prod, start, end)
+                    minute_df = load_minute_data(prod, start, end)  # Still need for filtering logic
+                else:
+                    # For zone1 and zone2, use minute data
+                    minute_df = load_minute_data(prod, start, end)
+                    daily_df = load_daily_data(prod, start, end)  # For trading day logic
+                
+                if minute_df.empty:
+                    return dict(content="No data available for the selected period.", filename=f"{base_id}_no_data.txt")
+                
+                # Parse spec (enabled=True because button clicked)
+                tol_value = tol if tol is not None else 0.2
+                spec = parse_zone_spec(
+                    name=zone_name,
+                    enabled=True,
+                    target_pct=target,
+                    tolerance_pct=tol_value,
+                    start_day_offset=sd,
+                    start_hour=sh,
+                    start_minute=sm,
+                    end_day_offset=ed,
+                    end_hour=eh,
+                    end_minute=em
+                )
+                
+                # Apply filter to get passing dates
+                _, diagnostics = apply_zone_filters(minute_df, [spec])
+                passing_dates = diagnostics.get('days_passing_all', [])
+                
+                if not passing_dates:
+                    return dict(content="No dates passed the filter criteria.", filename=f"{base_id}_no_results.txt")
+                
+                # Build comprehensive export data
+                from ..features.zone_filters import _ensure_timezone_aware, compute_zone_pct_change
+                minute_df_tz = _ensure_timezone_aware(minute_df)
+                
+                export_rows = []
+                for analysis_date in passing_dates:
+                    try:
+                        # Calculate T-2, T-1, T-0 dates
+                        t0 = analysis_date
+                        t_minus_1 = get_previous_trading_day(t0)
+                        t_minus_2 = get_previous_trading_day(t_minus_1) if t_minus_1 else None
+                        
+                        # Calculate actual start and end dates based on offsets
+                        start_date = analysis_date + timedelta(days=spec.start_day_offset)
+                        end_date = analysis_date + timedelta(days=spec.end_day_offset)
+                        
+                        # Get actual prices at start and end of window
+                        NY_TZ = pytz.timezone('America/New_York')
+                        from datetime import time as dt_time
+                        start_dt = NY_TZ.localize(datetime.combine(start_date, dt_time(spec.start_hour, spec.start_minute)))
+                        end_dt = NY_TZ.localize(datetime.combine(end_date, dt_time(spec.end_hour, spec.end_minute)))
+                        
+                        # Handle midnight crossing
+                        if end_dt <= start_dt:
+                            end_dt += timedelta(days=1)
+                        
+                        # Find bars in the time window
+                        mask = (minute_df_tz['time'] >= start_dt) & (minute_df_tz['time'] <= end_dt)
+                        window_data = minute_df_tz[mask]
+                        
+                        if len(window_data) > 0:
+                            price_start = window_data.iloc[0]['open']
+                            price_end = window_data.iloc[-1]['close']
+                            change_pct = ((price_end - price_start) / price_start) * 100
+                            
+                            # Calculate bounds
+                            lower_bound = target - tol_value
+                            upper_bound = target + tol_value
+                            
+                            export_rows.append({
+                                'T-2': t_minus_2.strftime('%Y-%m-%d') if t_minus_2 else '',
+                                'T-1': t_minus_1.strftime('%Y-%m-%d') if t_minus_1 else '',
+                                'T-0 (Analysis Date)': t0.strftime('%Y-%m-%d'),
+                                'Price Start': round(price_start, 2),
+                                'Price End': round(price_end, 2),
+                                'Change %': round(change_pct, 2),
+                                '% - Tolerance (Lower)': round(lower_bound, 2),
+                                '% Target': round(target, 2),
+                                '% + Tolerance (Upper)': round(upper_bound, 2)
+                            })
+                    except Exception as e:
+                        print(f"Error processing date {analysis_date}: {e}")
+                        continue
+                
+                if not export_rows:
+                    return dict(content="Error calculating price data for passing dates.", filename=f"{base_id}_error.txt")
+                
+                # Create DataFrame for export
+                df_export = pd.DataFrame(export_rows)
+                
+                # Add metadata as header rows (will be in separate sheet or as comment)
+                filename = f"{base_id}_{prod}_passing_dates.xlsx"
+                
+                return dcc.send_data_frame(df_export.to_excel, filename, index=False, sheet_name='Passing Dates')
+                
+            except Exception as e:
+                import traceback
+                print(f"Error exporting zone dates for {base_id}: {e}")
+                traceback.print_exc()
+                return dict(content=f"Error exporting dates: {str(e)}", filename=f"{base_id}_error.txt")
+
+    # Register the three export callbacks
+    # First box uses daily candles, others use minute data
+    create_zone_export_callback('prev-ny', '% Change of prev NY session', use_daily=True)
+    create_zone_export_callback('zone1', '% Change zone 1', use_daily=False)
+    create_zone_export_callback('zone2', '% Change zone 2', use_daily=False)

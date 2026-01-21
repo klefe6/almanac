@@ -137,7 +137,7 @@ def register_calculation_callbacks(app, cache):
             State('pct-threshold', 'value'),
         ]
     )
-    @cache.memoize(timeout=300) if cache else lambda f: f
+    @cache.memoize(timeout=3600) if cache else lambda f: f  # OPTIMIZED: 1 hour cache
     def update_graphs(n_clicks, prod, start, end, filters, vol_thr, pct_thr):
         """
         Main callback to update all charts and summary.

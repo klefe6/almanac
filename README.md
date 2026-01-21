@@ -14,12 +14,12 @@ pip install -r requirements.txt
 
 ### 2. Run the Application
 ```bash
-python run.py
+python runalmanac.py
 ```
 
 Or with custom settings:
 ```bash
-python run.py --port 8086 --no-debug
+python runalmanac.py --port 8086 --no-debug
 ```
 
 The application will be available at: `http://127.0.0.1:8085`
@@ -237,7 +237,7 @@ Almanac Futures/
 │   └── pages/            # UI components
 ├── tests/                # Test suite
 ├── .cache/               # Caching directory (auto-created)
-├── run.py                # Application launcher
+├── runalmanac.py         # Application launcher
 ├── requirements.txt      # Python dependencies
 ├── pytest.ini            # Test configuration
 ├── ARCHITECTURE.md       # Detailed architecture docs

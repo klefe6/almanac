@@ -4,18 +4,35 @@ Almanac Futures - Application Launcher
 Simple entry point to run the Dash application.
 
 Usage:
-    python run.py
+    python runalmanac.py
     
     # Or with custom settings:
-    python run.py --port 8086 --debug
+    python runalmanac.py --port 8087 --debug
 """
 
 import argparse
 import logging
 import os
+import sys
 from datetime import datetime
-from almanac.app import run_server
-from almanac.config import get_config
+
+# Early error handling for imports
+try:
+    print("Importing almanac modules...", file=sys.stderr)
+    from almanac.config import get_config
+    print("✓ Config imported", file=sys.stderr)
+    from almanac.app import run_server
+    print("✓ App imported", file=sys.stderr)
+except ImportError as e:
+    print(f"❌ Import error: {e}", file=sys.stderr)
+    print(f"Python path: {sys.executable}", file=sys.stderr)
+    print(f"Python version: {sys.version}", file=sys.stderr)
+    raise
+except Exception as e:
+    print(f"❌ Error during import: {e}", file=sys.stderr)
+    import traceback
+    traceback.print_exc()
+    raise
 
 
 def setup_logging():
@@ -48,8 +65,10 @@ def setup_logging():
 
 def main():
     # Set up logging first
+    print("Setting up logging...", file=sys.stderr)
     logger = setup_logging()
     
+    print("Getting configuration...", file=sys.stderr)
     cfg = get_config()
     
     parser = argparse.ArgumentParser(description='Almanac Futures Application')
@@ -70,12 +89,16 @@ def main():
     print("\nPress Ctrl+C to stop the server.")
     
     try:
+        print("Starting server...", file=sys.stderr)
         run_server(host=args.host, port=args.port, debug=args.debug)
     except KeyboardInterrupt:
         logger.info("Server stopped by user (Ctrl+C)")
         print("\nServer stopped.")
     except Exception as e:
-        logger.error(f"Server error: {str(e)}")
+        logger.error(f"Server error: {str(e)}", exc_info=True)
+        print(f"\n❌ Server error: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
         raise
 
 

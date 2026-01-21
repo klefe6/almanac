@@ -2561,7 +2561,7 @@ def register_profile_callbacks(app, cache):
             State('weekly-to-year', 'value'),
         ]
     )
-    @cache.memoize(timeout=300)  # Reduced timeout to 5 minutes
+    @cache.memoize(timeout=3600)  # OPTIMIZED: 1 hour cache for historical data
     def update_graphs_simple(n_daily, n_hour, n_weekly, n_monthly, prod, start, end, mh, filters, vol_thr, pct_thr, median_pct, selected_measures, tA_h, tA_m, tB_h, tB_m, monthly_from_month, monthly_from_year, monthly_to_month, monthly_to_year, weekly_from_month, weekly_from_year, weekly_to_month, weekly_to_year):
         """Main callback to update all charts and summary."""
         # Determine which button was clicked
