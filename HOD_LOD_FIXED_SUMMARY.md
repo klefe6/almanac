@@ -80,7 +80,7 @@ Output('lod-rolling', 'figure'),
 
 ### **Step 1: Restart App**
 ```bash
-cd "C:\Program Files\Coding Projects\Almanac Futures"
+cd "C:\Coding Projects\Almanac Futures"
 python run.py
 ```
 

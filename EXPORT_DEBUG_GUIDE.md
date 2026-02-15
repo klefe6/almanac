@@ -20,7 +20,7 @@ The export button is causing a "server did not respond" error, which means the c
 
 ### **Step 1: Restart the App**
 ```bash
-cd "C:\Program Files\Coding Projects\Almanac Futures"
+cd "C:\Coding Projects\Almanac Futures"
 python run.py
 ```
 
